@@ -1,0 +1,8 @@
+--- a/app/views/shared/_powered_by.html.erb
++++ b/app/views/shared/_powered_by.html.erb
+@@ -10,4 +10,5 @@
+     <%= t('powered_by') %>
+   <% end %>
+   <a href="<%= Docuseal::PRODUCT_URL %><%= local_assigns[:link_path] %>" class="underline"><%= Docuseal.product_name %></a> - <%= t('open_source_documents_software') %>
++  · <a href="<%= Stark::SOURCE_URL %>" class="underline">Source</a>
+ </div>

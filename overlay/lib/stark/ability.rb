@@ -22,10 +22,10 @@ module Stark
       templates(ability, user, account_id)
 
       # Contracts: only the ones this person sent. `create` is checked on a blank Submission,
-      # before its creator is set, so it is granted per account; reading the template it is made
-      # from is checked separately by the controllers.
+      # before its creator is set, so it is granted for new records (id: nil); reading the template
+      # it is made from is checked separately by the controllers.
       ability.can %i[read update destroy], Submission, account_id: account_id, created_by_user_id: user.id
-      ability.can :create, Submission, account_id: account_id
+      ability.can :create, Submission, account_id: account_id, id: nil
       ability.can :manage, Submitter, account_id: account_id, submission: { created_by_user_id: user.id }
 
       # Their own profile, preferences, API key and MCP tokens. Role changes are refused in
@@ -49,11 +49,13 @@ module Stark
         return
       end
 
-      ability.can :read, Template, account_id: account_id, author_id: user.id
-      ability.can :read, Template, account_id: account_id, stark_shared: true
-      # The author is set after the create check, so create is per account; the template is then
-      # theirs (TemplatesController sets author = current_user).
-      ability.can :create, Template, account_id: account_id
+      readable = [{ author_id: user.id }, { stark_shared: true }]
+      readable.each { |c| ability.can :read, Template, c.merge(account_id: account_id) }
+      # `create` is checked twice: on a new template (its author is set after the check), and on the
+      # SOURCE template when cloning (TemplatesClone*, Api::TemplatesClone). So: any new record, or a
+      # clone of a template this person may read. Never "create per account": that clones anything.
+      ability.can :create, Template, account_id: account_id, id: nil
+      readable.each { |c| ability.can :create, Template, c.merge(account_id: account_id) }
       ability.can %i[update destroy], Template, account_id: account_id, author_id: user.id
 
       # Folder names are visible to everyone in the account (templates inside stay filtered).

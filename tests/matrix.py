@@ -40,13 +40,17 @@ def api(user, method, path, body=None):
 
 
 def mcp(user, tool, args):
+    """Returns the tool's JSON result, or None if the call failed (HTTP error or tool error)."""
     req = urllib.request.Request(BASE + "/mcp", method="POST",
                                  data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                                   "params": {"name": tool, "arguments": args}}).encode(),
                                  headers={"Authorization": f"Bearer {U[user]['mcp']}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        res = json.loads(r.read())["result"]
-    return res, json.loads(res["content"][0]["text"]) if not res.get("isError") else None
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            res = json.loads(r.read()).get("result") or {}
+    except urllib.error.HTTPError:
+        return None
+    return None if res.get("isError") else json.loads(res["content"][0]["text"])
 
 
 class Web:
@@ -138,13 +142,12 @@ if made.get("m2") and made.get("m1"):
     check("api: m1 filtering signers by the shared template sees only its own", s == 200 and mine == {made["m1"][0]}, f"{s} {mine}")
 
 # --- Built-in MCP -------------------------------------------------------------------------------
-res, data = mcp("m1", "search_templates", {"q": ""})
-names = sorted(x.get("name") for x in (data if isinstance(data, list) else (data or {}).get("templates", data or [])) or []) if data is not None else res
+data = mcp("m1", "search_templates", {"q": ""})  # [{id, name}]
+names = sorted(t["name"] for t in data) if data is not None else None
 check("mcp: m1 search_templates sees only its own and shared", names == ["Company shared", "Member1 private"], names)
-res, data = mcp("m2", "search_documents", {"q": ""})
-text = json.dumps(data)
-check("mcp: m2 search_documents does not include m1's contracts",
-      data is not None and all(f'"id": {i}' not in text and f'"id":{i}' not in text for i in made.get("m1", [])), text[:200])
+data = mcp("m2", "search_documents", {"q": ""})  # [{id, ...}] one per submission
+seen = {d["id"] for d in data} if data is not None else None
+check("mcp: m2 search_documents lists exactly its own contracts", seen == set(made.get("m2", [])), seen)
 
 # --- Web pages and settings ---------------------------------------------------------------------
 web = {u: Web(u) for u in U}
@@ -183,7 +186,57 @@ check("web: making it private again hides it", ids(api("m2", "GET", "/templates"
 s, loc, _ = web["m1"].form("POST", f"/templates/{T['t_m1']}/share_link", {"template[shared_link]": "true"}, f"/templates/{T['t_m1']}")
 check("web: member cannot turn on a public signing link", denied(s, loc), f"{s} {loc}")
 
+# --- Publishing, copies of signed contracts, permanent delete (Stark::TemplateGuard) -------------
+def tpl(tid):
+    return api("admin", "GET", f"/templates/{tid}")[1]
+
+
+s, _ = api("m1", "PUT", f"/templates/{T['t_m1']}", {"shared_link": True})
+check("api: member cannot turn on a public signing link on its own template", s == 403 and not tpl(T["t_m1"])["shared_link"], s)
+s, _ = api("tm", "PUT", f"/templates/{T['t_m1']}", {"shared_link": True})
+check("api: template manager can turn on a public signing link", s == 200 and tpl(T["t_m1"])["shared_link"], s)
+api("tm", "PUT", f"/templates/{T['t_m1']}", {"shared_link": False})
+# Who receives a copy of every signed contract (template preference bcc_completed): web form only
+# (the API cannot set template preferences). Read back from the admin's preferences page.
+def bcc_of(tid):
+    _, _, page = web["admin"].get(f"/templates/{tid}/preferences")
+    return "evil.example" in page or "archive@stark-test.example" in page, page
+
+
+for user, key in (("m1", "t_m1"), ("tm", "t_shared")):
+    s, loc, _ = web[user].form("POST", f"/templates/{T[key]}/preferences",
+                               {"template[preferences][bcc_completed]": f"{user}@evil.example"}, f"/templates/{T[key]}")
+    check(f"web: {user} cannot set a bcc for signed copies on {key}", not bcc_of(T[key])[0], f"{s} {loc}")
+s, loc, _ = web["admin"].form("POST", f"/templates/{T['t_admin']}/preferences",
+                              {"template[preferences][bcc_completed]": "archive@stark-test.example"}, f"/templates/{T['t_admin']}")
+check("web: admin can set a bcc for signed copies", "archive@stark-test.example" in bcc_of(T["t_admin"])[1], f"{s} {loc}")
+s, _ = api("tm", "DELETE", f"/templates/{T['t_m1']}?permanently=true")
+check("api: template manager cannot delete a template permanently", s == 403 and api("admin", "GET", f"/templates/{T['t_m1']}")[0] == 200, s)
+
+# --- Cloning ----------------------------------------------------------------------------------------
+s, body = api("m1", "POST", f"/templates/{T['t_admin']}/clone", {"name": "stolen"})
+check("api: member cannot clone a template it cannot read", s == 403, f"{s} {body}")
+s, loc, _ = web["m1"].form("POST", f"/templates/{T['t_tm']}/clone", {"template[name]": "stolen"}, "/")
+check("web: member cannot clone a template it cannot read", denied(s, loc), f"{s} {loc}")
+api("admin", "PUT", f"/templates/{T['t_shared']}", {"shared_link": True})
+s, body = api("m1", "POST", f"/templates/{T['t_shared']}/clone", {"name": "My copy"})
+ok = s == 200 and isinstance(body, dict)
+check("api: member can clone a shared template", ok, f"{s} {body}")
+if ok:
+    copy = tpl(body["id"])
+    check("api: the clone is private and has no public signing link", not copy["shared_link"] and copy["author"]["id"] == U["m1"]["id"], copy.get("shared_link"))
+    check("api: the clone is invisible to another member", api("m2", "GET", f"/templates/{body['id']}")[0] == 403)
+api("admin", "PUT", f"/templates/{T['t_shared']}", {"shared_link": False})
+
+# --- Documents, settings, own user ------------------------------------------------------------------
+if made.get("m2"):
+    check("api: member cannot download another member's documents",
+          api("m1", "GET", f"/submissions/{made['m2'][0]}/documents")[0] == 403)
+s, loc, _ = web["m1"].form("POST", "/account_custom_fields", {"value[][name]": "Hijacked", "value[][type]": "text"}, "/")
+check("web: member cannot change the account's custom-field library", denied(s, loc), f"{s} {loc}")
+
 check("seed: a user created without a role is a member", CAST["default_role"] == "member", CAST["default_role"])
+check("seed: the Stark migration ran", CAST["stark_shared_column"] is True)
 
 failed = [r for r in results if not r[0]]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")

@@ -3,10 +3,13 @@
 
     python3 tools/assemble.py [upstream-src-dir]
 
-Without a source dir it downloads the upstream tag named in UPSTREAM. The patches must apply cleanly
-(`patch --forward`, no fuzz): any upstream change in a patched hunk stops the build for review.
+Without a source dir it downloads the upstream tag named in UPSTREAM. Two tripwires stop the build
+for a human review when DocuSeal changes under us:
+- PINS: upstream files whose WHOLE content the Stark rules depend on (the permission rules Stark
+  replaces for non-admins). Any change there, even outside a patched line, must be re-read.
+- patches/: applied with no fuzz, so any upstream change around a patched line fails.
 """
-import io, os, re, shutil, subprocess, sys, tarfile, tempfile, urllib.request
+import hashlib, io, os, re, shutil, subprocess, sys, tarfile, tempfile, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UP = dict(re.findall(r"^(\w+)=(\S+)$", open(os.path.join(ROOT, "UPSTREAM")).read(), re.M))
@@ -24,6 +27,10 @@ def upstream_src(tmp):
 
 with tempfile.TemporaryDirectory() as tmp:
     src = upstream_src(tmp)
+    for line in open(os.path.join(ROOT, "PINS")):
+        digest, path = line.split()
+        if hashlib.sha256(open(os.path.join(src, path), "rb").read()).hexdigest() != digest:
+            sys.exit(f"PINS: upstream {path} changed. Re-read it against overlay/lib/stark/ability.rb, then update PINS.")
     work = os.path.join(tmp, "work")
     shutil.copytree(src, work, symlinks=True)
     changed = []
