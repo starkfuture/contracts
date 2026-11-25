@@ -20,21 +20,22 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Pins hold and patches apply (same gate as check.yml)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Pins hold, patches apply, Ruby parses (same gate as check.yml)
         run: |
           python3 tools/assemble.py
-          grep -qx "FROM $(sed -n 's/^MIRROR=//p' UPSTREAM)" Dockerfile
-      - uses: aws-actions/configure-aws-credentials@v4
+          find build/app -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.ROLE }}
           aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@v2
-      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build and push
         run: |
           TAG="$(sed -n 's/^TAG=//p' UPSTREAM)-stark-${GITHUB_SHA::7}"
           docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+            --build-arg BASE="$(sed -n 's/^MIRROR=//p' UPSTREAM)" \
             --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
             -t "$REPO:$TAG" --push .

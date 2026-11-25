@@ -25,21 +25,21 @@ module Stark
       user = Stark::Current.user or return
 
       publishing = (will_save_change_to_shared_link? && shared_link?) || will_save_change_to_stark_shared?
-      stark_deny!(user, 'Only template managers and admins can publish a template.', :share) if
+      stark_deny!('Only template managers and admins can publish a template.', :share) if
         publishing && !::Ability.new(user).can?(:share, self)
 
       bcc_was = (attribute_in_database(:preferences) || {})['bcc_completed'].to_s
-      stark_deny!(user, 'Only admins can change who receives copies of signed contracts.', :update) if
+      stark_deny!('Only admins can change who receives copies of signed contracts.', :update) if
         persisted? && bcc_was != (preferences || {})['bcc_completed'].to_s && user.role != User::ADMIN_ROLE
     end
 
     def stark_guard_destroy
       user = Stark::Current.user or return
 
-      stark_deny!(user, 'Only admins can delete a template permanently.', :destroy) if user.role != User::ADMIN_ROLE
+      stark_deny!('Only admins can delete a template permanently.', :destroy) if user.role != User::ADMIN_ROLE
     end
 
-    def stark_deny!(_user, message, action)
+    def stark_deny!(message, action)
       raise CanCan::AccessDenied.new(message, action, self)
     end
   end

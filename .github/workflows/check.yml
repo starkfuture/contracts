@@ -1,6 +1,6 @@
-# Every PR and every push to main: the pinned upstream files are unchanged and every patch applies with
-# no fuzz to the pinned upstream tag, and the Dockerfile builds on the base digest named in UPSTREAM.
-# No cloud credentials. The permission matrix needs a running DocuSeal: tests/run_pod_tests.sh.
+# Every PR and every push to main: the pinned upstream files are unchanged, every patch applies to the
+# pinned upstream tag, and every Ruby file in build/app parses. No cloud credentials.
+# The permission tests need a running DocuSeal: tests/run_pod_tests.sh (see FORK.md).
 name: check
 on:
   pull_request:
@@ -12,8 +12,8 @@ jobs:
   patches:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Pins hold and patches apply to the pinned upstream tag
         run: python3 tools/assemble.py
-      - name: Dockerfile base matches UPSTREAM
-        run: grep -qx "FROM $(sed -n 's/^MIRROR=//p' UPSTREAM)" Dockerfile
+      - name: Every Ruby file parses
+        run: find build/app -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null

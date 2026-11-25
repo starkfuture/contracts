@@ -7,8 +7,8 @@ D=$(cd "$(dirname "$0")/.." && pwd)
 K="kubectl --context stark-staging -n $NS"
 OUT=$(mktemp -d)
 bash "$D/tests/redeploy_pod.sh" "$NS" || exit 1   # a fresh pod: the seed is not re-runnable
-$K cp "$D/tests/seed.rb" docuseal-stark-test:/tmp/seed.rb >/dev/null
-$K exec docuseal-stark-test -- sh -c 'cd /app && bin/rails runner /tmp/seed.rb 2>&1' > "$OUT/seed.out"
+$K cp "$D/tests/seed.rb" docuseal-stark-test:/tmp/seed.rb -c docuseal >/dev/null
+$K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/seed.rb 2>&1' > "$OUT/seed.out"
 grep '^CAST=' "$OUT/seed.out" | sed 's/^CAST=//' > "$OUT/cast.json"
 [ -s "$OUT/cast.json" ] || { echo "seed failed"; tail -20 "$OUT/seed.out"; exit 1; }
 PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
@@ -19,7 +19,12 @@ for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:$PORT/up" && bre
 curl -s -o /dev/null "http://127.0.0.1:$PORT/up" || { echo "port-forward never answered"; exit 1; }
 python3 "$D/tests/matrix.py" "http://127.0.0.1:$PORT" "$OUT/cast.json"
 MATRIX=$?
-$K cp "$D/tests/routes.rb" docuseal-stark-test:/tmp/routes.rb >/dev/null
-$K exec docuseal-stark-test -- sh -c 'cd /app && bin/rails runner /tmp/routes.rb 2>/dev/null' > "$OUT/routes.txt"
+$K cp "$D/tests/probe.rb" docuseal-stark-test:/tmp/probe.rb -c docuseal >/dev/null
+PROBE=$($K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/probe.rb 2>/dev/null' | sed -n 's/^PROBE=//p')
+if python3 -c "import json,sys; p=json.loads(sys.argv[1]); sys.exit(0 if p['member_bcc_kept']==0 and p['admin_bcc_kept']==1 else 1)" "$PROBE"; then
+  echo "PASS probe: a member's contract BCC is dropped, an admin's is kept  [$PROBE]"; else
+  echo "FAIL probe: contract BCC  [$PROBE]"; MATRIX=$((MATRIX + 1)); fi
+$K cp "$D/tests/routes.rb" docuseal-stark-test:/tmp/routes.rb -c docuseal >/dev/null
+$K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/routes.rb 2>/dev/null' > "$OUT/routes.txt"
 if diff -u "$D/tests/routes.txt" "$OUT/routes.txt"; then echo "PASS routes: identical to the reviewed snapshot"; ROUTES=0; else echo "FAIL routes: changed, review each new endpoint then update tests/routes.txt"; ROUTES=1; fi
 exit $((MATRIX + ROUTES))

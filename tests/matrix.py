@@ -73,11 +73,39 @@ class Web:
     def get(self, path):
         return self.req("GET", path)
 
+    def token(self, page_path):
+        _, _, page = self.get(page_path)
+        return re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
+
     def form(self, method, path, fields, token_page):
-        _, _, page = self.get(token_page)
-        token = re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
-        fields = dict(fields, _method=method.lower(), authenticity_token=token)
-        return self.req("POST", path, urllib.parse.urlencode(fields), {"Content-Type": "application/x-www-form-urlencoded"})
+        fields = dict(fields, _method=method.lower(), authenticity_token=self.token(token_page))
+        return self.req("POST", path, urllib.parse.urlencode(fields),
+                        {"Content-Type": "application/x-www-form-urlencoded", "Referer": BASE + token_page})
+
+    def upload(self, path, fields, filename, content, token_page):
+        boundary = "----stark" + str(len(content))
+        body = b""
+        for k, v in dict(fields, authenticity_token=self.token(token_page)).items():
+            body += f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="files[]"; filename="{filename}"\r\n'
+                 f'Content-Type: application/pdf\r\n\r\n').encode() + content + f"\r\n--{boundary}--\r\n".encode()
+        return self.req("POST", path, body, {"Content-Type": f"multipart/form-data; boundary={boundary}",
+                                             "Accept": "application/json", "Referer": BASE + token_page})
+
+
+def tiny_pdf():
+    """A valid one-page PDF with correct xref offsets."""
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{o}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
 
 
 def denied(status, location):  # DocuSeal web answers a denied page with a redirect to root
@@ -167,13 +195,28 @@ check("web: member dashboard lists own + shared templates only",
       s == 200 and "Member1 private" in page and "Company shared" in page and "Admin private" not in page and "Manager private" not in page,
       f"{s} {loc}")
 s, loc, page = web["m1"].get("/search?q=private")
-check("web: member search hides others' templates", s == 200 and "Admin private" not in page and "Manager private" not in page, f"{s}")
+check("web: member search finds its own template and hides others'",
+      s == 200 and "Member1 private" in page and "Admin private" not in page and "Manager private" not in page, f"{s}")
 
 # Role escalation: a member editing their own user cannot make themselves admin.
-s, loc, _ = web["m1"].form("PATCH", f"/users/{U['m1']['id']}", {"user[role]": "admin", "user[first_name]": "m1"},
+s, loc, _ = web["m1"].form("PATCH", f"/users/{U['m1']['id']}", {"user[role]": "admin", "user[first_name]": "m1renamed"},
                            "/settings/profile")
 s2, me = api("m1", "GET", "/templates?limit=100")
-check("web: member cannot promote itself to admin", s2 == 200 and ids(me) == expect_templates["m1"], f"update {s} {loc}")
+landed = api("m1", "GET", "/user")[1].get("first_name") == "m1renamed"
+check("web: member editing itself keeps the edit but not a role change",
+      landed and s2 == 200 and ids(me) == expect_templates["m1"], f"update {s} {loc} landed={landed}")
+
+# The admin's user form must keep each user's role: a form that preselects the first option would
+# silently demote anyone whose user an admin edits.
+_, _, edit = web["admin"].get(f"/users/{U['tm']['id']}/edit")
+selected = re.findall(r'<option[^>]*selected[^>]*value="([a-z_]+)"|<option[^>]*value="([a-z_]+)"[^>]*selected', edit)
+selected = [a or b for a, b in selected]
+check("web: the admin's user form preselects the user's current role", selected == ["template_manager"], selected)
+s, loc, _ = web["admin"].form("PATCH", f"/users/{U['tm']['id']}",
+                              {"user[first_name]": "tm", "user[role]": selected[0] if selected else "member"},
+                              f"/users/{U['tm']['id']}/edit")
+check("web: saving the user form keeps the template manager's rights",
+      ids(api("tm", "GET", "/templates?limit=100")[1]) == expect_templates["tm"], f"{s} {loc}")
 
 # Sharing a template: members cannot publish, managers can (and it is restored after).
 s, loc, _ = web["m1"].form("PATCH", f"/stark/templates/{T['t_m1']}/visibility", {"shared": "true"}, f"/templates/{T['t_m1']}")
@@ -236,7 +279,36 @@ s, loc, _ = web["m1"].form("POST", "/account_custom_fields", {"value[][name]": "
 check("web: member cannot change the account's custom-field library", denied(s, loc), f"{s} {loc}")
 
 check("seed: a user created without a role is a member", CAST["default_role"] == "member", CAST["default_role"])
-check("seed: the Stark migration ran", CAST["stark_shared_column"] is True)
+# --- Members build their own templates on the web ----------------------------------------------------
+before = set(ids(api("m1", "GET", "/templates?limit=100")[1]))
+s, loc, _ = web["m1"].form("POST", "/templates", {"template[name]": "Member1 blank", "folder_name": "Default"}, "/settings/profile")
+made_blank = set(ids(api("m1", "GET", "/templates?limit=100")[1])) - before
+check("web: member can create a blank template, private to them",
+      s in (302, 303) and "/edit" in loc and len(made_blank) == 1
+      and api("m2", "GET", f"/templates/{min(made_blank)}")[0] == 403, f"{s} {loc} {made_blank}")
+before = set(ids(api("m1", "GET", "/templates?limit=100")[1]))
+s, loc, body = web["m1"].upload("/templates_upload", {"folder_name": "Default"}, "upload.pdf", tiny_pdf(), "/settings/profile")
+made_upload = set(ids(api("m1", "GET", "/templates?limit=100")[1])) - before
+check("web: member can create a template from a PDF", len(made_upload) == 1, f"{s} {loc} {body[:120]}")
+
+# --- MCP writes -----------------------------------------------------------------------------------
+signer = [{"email": "mcp-signer@example.com", "role": "Signer"}]
+check("mcp: member cannot send from a template it cannot read",
+      mcp("m1", "send_documents", {"template_id": T["t_admin"], "submitters": signer}) is None)
+check("mcp: member can send from a shared template",
+      mcp("m1", "send_documents", {"template_id": T["t_shared"], "submitters": signer}) is not None)
+
+# --- Admin keeps the destructive powers the guard takes from others ---------------------------------
+victim = next(iter(made_blank), None)
+if victim:
+    s, _ = api("admin", "DELETE", f"/templates/{victim}?permanently=true")
+    check("api: admin can delete a template permanently", s == 200 and api("admin", "GET", f"/templates/{victim}")[0] == 404, s)
+
+# --- A contract's own BCC (read back by tests/probe.rb in the pod) ------------------------------------
+for user, bcc in (("m1", "m1-bcc@evil.example"), ("admin", "archive-sub@stark-test.example")):
+    s, _ = api(user, "POST", "/submissions", {"template_id": T["t_shared"], "send_email": False, "bcc_completed": bcc,
+                                              "submitters": [{"role": "Signer", "email": f"{user}-bcc@example.com"}]})
+    check(f"api: {user} can send with a bcc field", s == 200, s)
 
 failed = [r for r in results if not r[0]]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")

@@ -28,8 +28,8 @@ module Stark
       ability.can :create, Submission, account_id: account_id, id: nil
       ability.can :manage, Submitter, account_id: account_id, submission: { created_by_user_id: user.id }
 
-      # Their own profile, preferences, API key and MCP tokens. Role changes are refused in
-      # UsersController (patches/0004), so managing their own user cannot make them admin.
+      # Their own profile, preferences, API key and MCP tokens. Upstream UsersController#update drops
+      # `role` when people edit themselves, so managing their own user cannot make them admin.
       ability.can :manage, User, id: user.id, account_id: account_id
       ability.can :manage, UserConfig, user_id: user.id
       ability.can :manage, EncryptedUserConfig, user_id: user.id
@@ -49,7 +49,10 @@ module Stark
         return
       end
 
-      readable = [{ author_id: user.id }, { stark_shared: true }]
+      # Values are lists on purpose: CanCan pre-fills a NEW record with every scalar value found in
+      # the conditions of :create rules (Ability#attributes_for), so `stark_shared: true` would make
+      # every template a member creates start out shared. Lists match the same rows and are skipped.
+      readable = [{ author_id: [user.id] }, { stark_shared: [true] }]
       readable.each { |c| ability.can :read, Template, c.merge(account_id: account_id) }
       # `create` is checked twice: on a new template (its author is set after the check), and on the
       # SOURCE template when cloning (TemplatesClone*, Api::TemplatesClone). So: any new record, or a

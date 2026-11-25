@@ -15,4 +15,5 @@ Rails.application.config.to_prepare do
   end
 
   Template.include(Stark::TemplateGuard) unless Template < Stark::TemplateGuard
+  Submission.include(Stark::SubmissionGuard) unless Submission < Stark::SubmissionGuard
 end
