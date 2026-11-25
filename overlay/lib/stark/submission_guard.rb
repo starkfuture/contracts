@@ -22,7 +22,11 @@ module Stark
       stored = new_record? ? nil : (attribute_in_database(:preferences) || {})['bcc_completed']
       return if preferences['bcc_completed'].to_s == stored.to_s
 
-      stored.nil? ? preferences.delete('bcc_completed') : preferences['bcc_completed'] = stored
+      if stored.nil?
+        preferences.delete('bcc_completed')
+      else
+        preferences['bcc_completed'] = stored
+      end
     end
   end
 end

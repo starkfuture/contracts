@@ -1,0 +1,12 @@
+--- a/lib/templates.rb
++++ b/lib/templates.rb
+@@ -48,6 +48,9 @@
+   end
+ 
+   def shared(current_user)
++    # Stark: templates shared from linked accounts bypass the Stark rules; only admins see them.
++    return Template.none unless current_user.role == User::ADMIN_ROLE
++
+     account = current_user.account
+ 
+     return Template.none if Docuseal.multitenant? ? !account.testing? : !account.linked_account_account

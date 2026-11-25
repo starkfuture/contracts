@@ -32,7 +32,8 @@ mirrored in ECR, pinned by digest in `UPSTREAM` and passed to the `Dockerfile` a
   Stark replaces for non-admins (`lib/ability.rb`, `lib/abilities/template_conditions.rb`), and
   the upstream behaviour the rules rely on unpatched: users editing themselves cannot change their
   role (`users_controller.rb`), BCC precedence (`process_submitter_completion_job.rb`), the
-  template preferences form (`templates_preferences_controller.rb`). Any
+  template preferences form (`templates_preferences_controller.rb`), the contract model
+  (`submission.rb`: preferences stored as JSON with string keys, which the BCC guard relies on). Any
   upstream change in them stops the build for a human re-read. Because every patched file is
   pinned whole, a patch can only fail after its pin already has; the pin is the tripwire.
   The test pod also checks the image's own copies against PINS, so the image provably holds the
@@ -53,6 +54,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | 0007 | `app/views/shared/_powered_by.html.erb` | "Source" link next to the DocuSeal credit (licence). |
 | 0008 | `app/controllers/account_custom_fields_controller.rb` | The custom-field library is admin-only. |
 | 0009 | `app/models/template.rb` | Template lists load `stark_shared`, which the rules read. |
+| 0010 | `lib/templates.rb` | Templates shared from linked accounts (web list and API `shared=true`) are admin-only: they bypass the Stark rules. |
 
 | Stark file | What |
 |---|---|
@@ -97,14 +99,15 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 - The share-link toggle and the preferences form are visible to a template's author. If a member
   uses them, nothing is saved, but the page can look as if it was (DocuSeal saves them in the
   background and the refusal is a redirect).
-- The "shared with me" template list (linked testing accounts) is not scoped by Stark rules. It is
-  always empty on a single-account install like Stark's.
 - A template can name a fixed recipient for a role (for example legal as counter-signer). That
   person receives the signed copy like any signer. It is visible on the send form, so it is a
   named party, not a hidden copy; template managers and a template's author can set it.
 - After a template is shared, its author can still edit it (documents, fields, redirect and
   reply-to settings) and archive it. Sharing approves the author, not a frozen version.
 - Senders can delete their own contracts, signed ones included.
+- A non-admin's contract carries no BCC of its own, so it follows the template's or account's BCC
+  as it is when the contract completes: an admin changing it later also changes it for contracts
+  still being signed.
 - Members can create templates from a URL through the MCP server; upstream blocks internal
   addresses on that download.
 - Only amd64 is tested; the arm64 image is the same files on upstream's arm64 base.
@@ -123,7 +126,10 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
    (`sha256sum <files>`).
 3. Run the tests (below). The route snapshot fails on any new or changed route: check that each new
    endpoint goes through CanCan (or is public by design), then update `tests/routes.txt`.
-4. Read upstream's changelog for new settings pages, API endpoints or MCP tools, and check them
+4. Check where upstream reads `bcc_completed`: today only the contract's, then the template's,
+   then the account's (`process_submitter_completion_job.rb`). Upstream also copies it onto
+   signers, unused. If a release starts reading the signer copy, guard it too.
+5. Read upstream's changelog for new settings pages, API endpoints or MCP tools, and check them
    against the intent above. New MCP tools do not show in the route snapshot (they all live behind
    `/mcp`): list them in `app/controllers/mcp_controller.rb`.
 
