@@ -62,6 +62,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | `lib/stark/template_guard.rb` | Publishing, a template's BCC and permanent delete, enforced on the model so every path (web, API, MCP, clone) is covered. |
 | `lib/stark/submission_guard.rb` | A contract's own BCC set or changed by anyone but an admin is put back; other saves (signing) leave it alone. |
 | `config/locales/stark.en.yml` | Role names in the users list. |
+| `lib/stark.rb` | The source URL for the "Source" link. |
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
 | `db/migrate/…_stark_add_shared_to_templates.rb` | `templates.stark_shared`, false for every existing template. |
@@ -105,6 +106,9 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 - After a template is shared, its author can still edit it (documents, fields, redirect and
   reply-to settings) and archive it. Sharing approves the author, not a frozen version.
 - Senders can delete their own contracts, signed ones included.
+- DocuSeal's public "email me my signed copy" page re-sends a completed signer their own copy,
+  given a template's link id and that signer's email. It never sends to anyone else, and works
+  the same for everyone (no login): upstream's recovery flow, not a Stark role.
 - A non-admin's contract carries no BCC of its own, so it follows the template's or account's BCC
   as it is when the contract completes: an admin changing it later also changes it for contracts
   still being signed.
@@ -138,13 +142,13 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 CI (`check.yml`) checks the pins and patches and parses every Ruby file on every PR. The permission
 tests need a running DocuSeal: `tests/` runs the real image with `build/app` and a throwaway
 Postgres (the image staging's own database runs) on a pod in a dynamic sandbox namespace, seeds one
-admin, one template manager and two members, and checks 79 allowed and denied cases over the API,
-web pages and the built-in MCP server, a probe of what the API does not return (contract BCC), and
-the 251-route snapshot:
+admin, one template manager and two members, and checks 80 allowed and denied cases over the API,
+web pages and the built-in MCP server, a probe in the pod (contract BCC kept from non-admins and
+through signing; linked-account templates admin-only), and the 251-route snapshot:
 
     python3 tools/assemble.py
     bash tests/run_pod_tests.sh sandboxenv-<env>   # recreates the pod, seeds, runs everything
-    bash tests/baseline.sh sandboxenv-<env>        # the same on unmodified DocuSeal: 28/79
+    bash tests/baseline.sh sandboxenv-<env>        # the same on unmodified DocuSeal (matrix only)
     bash tests/cleanup.sh sandboxenv-<env>
 
 ## Licence

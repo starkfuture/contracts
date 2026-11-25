@@ -230,6 +230,8 @@ check("web: template manager shares a template, members then see it",
       s in (302, 303) and ids(api("m2", "GET", "/templates")[1]) == sorted([T["t_m1"], T["t_shared"]]), f"{s} {loc}")
 web["tm"].form("PATCH", f"/stark/templates/{T['t_m1']}/visibility", {"shared": "false"}, f"/templates/{T['t_m1']}")
 check("web: making it private again hides it", ids(api("m2", "GET", "/templates")[1]) == [T["t_shared"]])
+s, shared = api("m1", "GET", "/templates?shared=true")
+check("api: member's shared=true template list is empty", s == 200 and ids(shared) == [], f"{s} {ids(shared) if s == 200 else ''}")
 s, loc, _ = web["m1"].form("POST", f"/templates/{T['t_m1']}/share_link", {"template[shared_link]": "true"}, f"/templates/{T['t_m1']}")
 check("web: member cannot turn on a public signing link", denied(s, loc) and not tpl(T["t_m1"])["shared_link"], f"{s} {loc}")
 

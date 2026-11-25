@@ -20,10 +20,10 @@ curl -s -o /dev/null "http://127.0.0.1:$PORT/up" || { echo "port-forward never a
 python3 "$D/tests/matrix.py" "http://127.0.0.1:$PORT" "$OUT/cast.json"
 MATRIX=$?
 $K cp "$D/tests/probe.rb" docuseal-stark-test:/tmp/probe.rb -c docuseal >/dev/null
-PROBE=$($K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/probe.rb 2>/dev/null' | sed -n 's/^PROBE=//p')
-if python3 -c "import json,sys; p=json.loads(sys.argv[1]); sys.exit(0 if p['member_bcc_kept']==0 and p['admin_bcc_kept']==1 and p.get('admin_bcc_survives_member_save') and p.get('member_change_put_back') and p.get('linked_shared_member')==0 and p.get('linked_shared_admin')==1 else 1)" "$PROBE"; then
+PROBE=$($K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/probe.rb 2>&1' | tee "$OUT/probe.log" | sed -n 's/^PROBE=//p')
+if python3 -c "import json,sys; p=json.loads(sys.argv[1]); sys.exit(0 if p['member_bcc_kept']==0 and p['admin_bcc_kept']==1 and p.get('admin_bcc_survives_member_save') and p.get('member_change_put_back') and p.get('linked_shared_member')==0 and p.get('linked_shared_template_manager')==0 and p.get('linked_shared_admin')==1 else 1)" "$PROBE" 2>/dev/null; then
   echo "PASS probe: contract BCC admin-only and survives other saves; linked-account templates admin-only  [$PROBE]"; else
-  echo "FAIL probe: contract BCC  [$PROBE]"; MATRIX=$((MATRIX + 1)); fi
+  echo "FAIL probe: contract BCC / linked-account templates  [$PROBE]"; [ -n "$PROBE" ] || tail -20 "$OUT/probe.log"; MATRIX=$((MATRIX + 1)); fi
 $K cp "$D/tests/routes.rb" docuseal-stark-test:/tmp/routes.rb -c docuseal >/dev/null
 $K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/routes.rb 2>/dev/null' > "$OUT/routes.txt"
 if diff -u "$D/tests/routes.txt" "$OUT/routes.txt"; then echo "PASS routes: identical to the reviewed snapshot"; ROUTES=0; else echo "FAIL routes: changed, review each new endpoint then update tests/routes.txt"; ROUTES=1; fi
