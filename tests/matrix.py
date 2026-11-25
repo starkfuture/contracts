@@ -221,17 +221,19 @@ check("web: saving the user form keeps the template manager's rights",
 # Sharing a template: members cannot publish, managers can (and it is restored after).
 s, loc, _ = web["m1"].form("PATCH", f"/stark/templates/{T['t_m1']}/visibility", {"shared": "true"}, f"/templates/{T['t_m1']}")
 check("web: member cannot share its own template", denied(s, loc) and ids(api("m2", "GET", "/templates")[1]) == [T["t_shared"]], f"{s} {loc}")
+def tpl(tid):
+    return api("admin", "GET", f"/templates/{tid}")[1]
+
+
 s, loc, _ = web["tm"].form("PATCH", f"/stark/templates/{T['t_m1']}/visibility", {"shared": "true"}, f"/templates/{T['t_m1']}")
 check("web: template manager shares a template, members then see it",
       s in (302, 303) and ids(api("m2", "GET", "/templates")[1]) == sorted([T["t_m1"], T["t_shared"]]), f"{s} {loc}")
 web["tm"].form("PATCH", f"/stark/templates/{T['t_m1']}/visibility", {"shared": "false"}, f"/templates/{T['t_m1']}")
 check("web: making it private again hides it", ids(api("m2", "GET", "/templates")[1]) == [T["t_shared"]])
 s, loc, _ = web["m1"].form("POST", f"/templates/{T['t_m1']}/share_link", {"template[shared_link]": "true"}, f"/templates/{T['t_m1']}")
-check("web: member cannot turn on a public signing link", denied(s, loc), f"{s} {loc}")
+check("web: member cannot turn on a public signing link", denied(s, loc) and not tpl(T["t_m1"])["shared_link"], f"{s} {loc}")
 
 # --- Publishing, copies of signed contracts, permanent delete (Stark::TemplateGuard) -------------
-def tpl(tid):
-    return api("admin", "GET", f"/templates/{tid}")[1]
 
 
 s, _ = api("m1", "PUT", f"/templates/{T['t_m1']}", {"shared_link": True})
@@ -242,7 +244,8 @@ api("tm", "PUT", f"/templates/{T['t_m1']}", {"shared_link": False})
 # Who receives a copy of every signed contract (template preference bcc_completed): web form only
 # (the API cannot set template preferences). Read back from the admin's preferences page.
 def bcc_of(tid):
-    _, _, page = web["admin"].get(f"/templates/{tid}/preferences")
+    s, _, page = web["admin"].get(f"/templates/{tid}/preferences")
+    assert s == 200 and "csrf-token" in page, f"admin preferences page for {tid}: {s}"
     return "evil.example" in page or "archive@stark-test.example" in page, page
 
 

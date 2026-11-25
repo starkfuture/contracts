@@ -3,11 +3,10 @@
 
     python3 tools/assemble.py [upstream-src-dir]
 
-Without a source dir it downloads the upstream tag named in UPSTREAM. Two tripwires stop the build
-for a human review when DocuSeal changes under us:
-- PINS: upstream files whose WHOLE content the Stark rules depend on (the permission rules Stark
-  replaces for non-admins). Any change there, even outside a patched line, must be re-read.
-- patches/: applied with no fuzz, so any upstream change around a patched line fails.
+Without a source dir it downloads the upstream tag named in UPSTREAM. PINS stops the build for a
+human review when DocuSeal changes under us: it holds the sha256 of every patched upstream file and
+of the permission rules Stark replaces for non-admins. Any change there must be re-read against the
+intent in FORK.md before the patch is redone and the pin updated.
 """
 import hashlib, io, os, re, shutil, subprocess, sys, tarfile, tempfile, urllib.request
 
@@ -30,7 +29,7 @@ with tempfile.TemporaryDirectory() as tmp:
     for line in open(os.path.join(ROOT, "PINS")):
         digest, path = line.split()
         if hashlib.sha256(open(os.path.join(src, path), "rb").read()).hexdigest() != digest:
-            sys.exit(f"PINS: upstream {path} changed. Re-read it against overlay/lib/stark/ability.rb, then update PINS.")
+            sys.exit(f"PINS: upstream {path} changed. Re-read it against FORK.md, redo its patch if any, then update PINS.")
     work = os.path.join(tmp, "work")
     shutil.copytree(src, work, symlinks=True)
     changed = []

@@ -29,7 +29,10 @@ mirrored in ECR, pinned by digest in `UPSTREAM` and passed to the `Dockerfile` a
 `build/app/`, which `tools/assemble.py` makes from:
 
 - `PINS`: sha256 of the full upstream content of every file we patch, plus the permission rules
-  Stark replaces for non-admins (`lib/ability.rb`, `lib/abilities/template_conditions.rb`). Any
+  Stark replaces for non-admins (`lib/ability.rb`, `lib/abilities/template_conditions.rb`), and
+  the upstream behaviour the rules rely on unpatched: users editing themselves cannot change their
+  role (`users_controller.rb`), BCC precedence (`process_submitter_completion_job.rb`), the
+  template preferences form (`templates_preferences_controller.rb`). Any
   upstream change in them stops the build for a human re-read. Because every patched file is
   pinned whole, a patch can only fail after its pin already has; the pin is the tripwire.
   The test pod also checks the image's own copies against PINS, so the image provably holds the
@@ -55,7 +58,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 |---|---|
 | `lib/stark/ability.rb` | The rules for member and template_manager. |
 | `lib/stark/template_guard.rb` | Publishing, a template's BCC and permanent delete, enforced on the model so every path (web, API, MCP, clone) is covered. |
-| `lib/stark/submission_guard.rb` | A contract's own BCC from anyone but an admin is dropped (the template's or account's applies). |
+| `lib/stark/submission_guard.rb` | A contract's own BCC set or changed by anyone but an admin is put back; other saves (signing) leave it alone. |
 | `config/locales/stark.en.yml` | Role names in the users list. |
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
@@ -70,7 +73,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
   member created start out shared, and the guard then refused to save it.
 - A role picker must preselect the user's current role, or saving any other field resets it.
 - A column a rule reads must be loaded wherever templates are listed with a narrow `select`
-  (patch 0012), or the page fails with "missing attribute".
+  (patch 0009), or the page fails with "missing attribute".
 - `create` on Template is checked twice: on the new template, and on the SOURCE template when
   cloning. Rules are therefore "any new record" or "a template you may read". Never "create per
   account": that let anyone clone any template.
@@ -94,6 +97,16 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 - The share-link toggle and the preferences form are visible to a template's author. If a member
   uses them, nothing is saved, but the page can look as if it was (DocuSeal saves them in the
   background and the refusal is a redirect).
+- The "shared with me" template list (linked testing accounts) is not scoped by Stark rules. It is
+  always empty on a single-account install like Stark's.
+- A template can name a fixed recipient for a role (for example legal as counter-signer). That
+  person receives the signed copy like any signer. It is visible on the send form, so it is a
+  named party, not a hidden copy; template managers and a template's author can set it.
+- After a template is shared, its author can still edit it (documents, fields, redirect and
+  reply-to settings) and archive it. Sharing approves the author, not a frozen version.
+- Senders can delete their own contracts, signed ones included.
+- Members can create templates from a URL through the MCP server; upstream blocks internal
+  addresses on that download.
 - Only amd64 is tested; the arm64 image is the same files on upstream's arm64 base.
 - After a template is made private again, people who sent contracts from it still see those
   contracts, but not the template's own pages (archived list, export).
@@ -103,7 +116,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 
 1. Mirror the new upstream image into ECR keeping the multi-arch index (for example
    `crane copy docuseal/docuseal:<tag> <ecr>/docuseal:<tag>`), then set the tag and digest in
-   `UPSTREAM` and the `Dockerfile`.
+   `UPSTREAM`.
 2. `python3 tools/assemble.py`. A PINS mismatch means upstream changed a file we depend on: read
    the change against the intent above, redo the edit on the new upstream file and save it with
    `diff -u --label a/<path> --label b/<path> <old> <new> > patches/<n>.patch`, then update PINS
