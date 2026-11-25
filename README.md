@@ -1,4 +1,4 @@
-# docuseal-stark
+# contracts
 
 Stark Future's DocuSeal: upstream [DocuSeal](https://github.com/docusealco/docuseal) Community
 edition (AGPL-3.0) plus roles, so people see only their own contracts and the templates they are

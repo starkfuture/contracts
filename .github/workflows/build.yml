@@ -1,9 +1,9 @@
 # Builds the Stark DocuSeal image for amd64 and arm64 (the cluster has both; the build is a plain COPY
-# onto the multi-arch upstream index, so no emulation) and pushes docuseal-stark:<tag>-stark-<sha7>.
+# onto the multi-arch upstream index, so no emulation) and pushes contracts:<tag>-stark-<sha7>.
 # Only from main. Deploying an image is an argo-cd change.
-# Needs, from stark-terraform: ECR repository docuseal-stark (immutable tags) and IAM role
-# GithubActionsDocusealStark trusted for this repository's main branch only, allowed to push to
-# docuseal-stark and pull from the docuseal mirror (BASE).
+# Needs, from stark-terraform: ECR repository contracts (immutable tags) and IAM role
+# GithubActionsContracts trusted for this repository's main branch only, allowed to push to
+# contracts and pull from the docuseal mirror (BASE).
 name: build
 on:
   workflow_dispatch:
@@ -14,8 +14,8 @@ permissions:
   id-token: write
 env:
   AWS_REGION: eu-west-1
-  ROLE: arn:aws:iam::952414816681:role/GithubActionsDocusealStark
-  REPO: 952414816681.dkr.ecr.eu-west-1.amazonaws.com/docuseal-stark
+  ROLE: arn:aws:iam::952414816681:role/GithubActionsContracts
+  REPO: 952414816681.dkr.ecr.eu-west-1.amazonaws.com/contracts
 jobs:
   image:
     if: github.ref == 'refs/heads/main'

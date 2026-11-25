@@ -63,6 +63,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | `lib/stark/submission_guard.rb` | A contract's own BCC set or changed by anyone but an admin is put back; other saves (signing) leave it alone. |
 | `config/locales/stark.en.yml` | Role names in the users list. |
 | `lib/stark.rb` | The source URL for the "Source" link. |
+| `app/views/layouts/mailer.html.erb` | The Stark email layout (replaces upstream's whole file, which is pinned so an upgrade shows its changes). Email texts stay in Settings → Personalization. |
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
 | `db/migrate/…_stark_add_shared_to_templates.rb` | `templates.stark_shared`, false for every existing template. |

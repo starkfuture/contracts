@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><%= message.subject %></title>
+    <!--[if !mso]><!-->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!--<![endif]-->
+    <style type="text/css">
+      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+      body { margin:0; padding:0; background-color:#F5F5F5; font-family:'Roboto', Arial, sans-serif; font-size:14px; line-height:20px; }
+      img { border:0; line-height:100%; display:block; }
+      table { border-collapse:collapse; }
+      td, p, div, a, span, strong { font-family:'Roboto', Arial, sans-serif; }
+      .wrapper { width:100%; max-width:660px; }
+      .title-block { font-size:22px; line-height:28px; color:#000000; font-weight:700; margin:0; }
+      .content p { margin:0 0 12px 0; font-size:14px; line-height:20px; color:#222222; }
+      .content a { box-sizing:border-box; font-weight:400; background-color:#000000; border-radius:999px; padding:12px 20px; font-size:14px; line-height:20px; color:#FFFFFF !important; text-decoration:none; display:block; text-align:center; max-width:360px; min-width:128px; margin:16px auto 16px auto; }
+      .content em { font-style:normal; color:#6B6B6B; }  /* *text* in the body = muted note, like the CIO disclaimer line */
+      .attribution p { margin:0; font-size:11px; line-height:16px; color:#6B6B6B; }
+      .attribution a { color:#6B6B6B; text-decoration:underline; }
+      .header-mobile { display:none; max-height:0; overflow:hidden; }
+      @media only screen and (max-width:600px) {
+        .wrapper { width:100% !important; max-width:100% !important; }
+        .header-mobile { display:block !important; max-height:none !important; overflow:visible !important; }
+        .header-desktop { display:none !important; max-height:0 !important; overflow:hidden !important; }
+        .mobile-inner { padding-left:24px !important; padding-right:24px !important; }
+        .mobile-social-pad { padding-left:24px !important; padding-right:24px !important; padding-top:16px !important; padding-bottom:16px !important; }
+        .mobile-divider-pad { padding-left:24px !important; padding-right:24px !important; }
+        .mobile-social { padding-left:12px !important; padding-right:12px !important; }
+        .mobile-social img { height:20px !important; width:auto !important; }
+        .content a { max-width:100% !important; }
+      }
+    </style>
+    <!--[if mso]><style type="text/css">body, table, td { font-family:"Roboto", Arial, sans-serif !important; }</style><![endif]-->
+  </head>
+  <body dir="<%= TextUtils.rtl?(yield) ? 'rtl' : 'auto' %>" style="margin:0; padding:0; background-color:#F5F5F5;">
+    <!-- HEADER (same assets as the Stark Customer.io emails) -->
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:transparent;">
+      <tr>
+        <td align="center" style="padding:0;">
+          <a href="https://starkfuture.com" target="_blank" style="display:block; text-decoration:none;">
+            <img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764059554516_Header%20with%20icon_01KAX297MPCSMYYJP3WAVG4652.png" alt="Stark Future" width="660" class="header-desktop" style="display:block; width:100%; max-width:660px; height:auto; border:0;">
+            <div class="header-mobile" style="display:none; max-height:0; overflow:hidden;">
+              <img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1765440706420_Mobile%20header_01KC67EP0RB9A6ZQSKJZ226QRT.png" alt="Stark Future" width="660" style="display:block; width:100%; max-width:660px; height:auto; border:0;">
+            </div>
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <!-- CARD -->
+    <table role="presentation" width="100%" align="center" bgcolor="#F5F5F5" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td align="center">
+          <table role="presentation" class="wrapper" width="660" align="center" bgcolor="#FFFFFF" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:660px; background-color:#FFFFFF;">
+            <tr>
+              <td class="mobile-inner" style="padding:28px 40px 0 40px;">
+                <p class="title-block" style="margin:0; font-family:'Roboto', Arial, sans-serif; font-size:22px; line-height:28px; color:#000000; font-weight:700;"><%= message.subject %></p>
+              </td>
+            </tr>
+            <tr>
+              <td class="mobile-inner content" style="padding:24px 40px 12px 40px; font-family:'Roboto', Arial, sans-serif; font-size:14px; line-height:20px; color:#222222;">
+                <%= yield %>
+              </td>
+            </tr>
+            <tr><td style="height:16px; line-height:16px; font-size:0;">&nbsp;</td></tr>
+          </table>
+
+          <!-- GREY FOOTER (same as the Stark Customer.io emails) -->
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" align="center" bgcolor="#C7C7C7" class="wrapper" style="border-collapse:collapse; max-width:660px;">
+            <tr>
+              <td align="center" style="padding:24px 45px 24px;" class="mobile-social-pad">
+                <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; display:inline-block;">
+                  <tr>
+                    <td style="padding:10px 18px;" class="mobile-social"><a href="https://www.instagram.com/stark__future/" target="_blank"><img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764338819699_Instagram%20-%20Black_01KB5CKRC0GE65MWA5KZTD7XW7.png" alt="Instagram" width="24" height="24" style="display:block; border:0;"></a></td>
+                    <td style="padding:10px 18px;" class="mobile-social"><a href="https://www.facebook.com/starkfutureofficial" target="_blank"><img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764338819223_Facebook%20-%20Black_01KB5CKQX6VPYCTRFE10NDK1YN.png" alt="Facebook" width="24" height="24" style="display:block; border:0;"></a></td>
+                    <td style="padding:10px 18px;" class="mobile-social"><a href="https://www.youtube.com/@starkfutureofficial" target="_blank"><img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764338818751_YouTube%20-%20Black_01KB5CKQED1VB2RKH65X1XCHFJ.png" alt="YouTube" width="24" height="24" style="display:block; border:0;"></a></td>
+                    <td style="padding:10px 18px;" class="mobile-social"><a href="https://www.linkedin.com/company/stark-future" target="_blank"><img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764338818261_LinkedIn%20-%20Black_01KB5CKPZ5H19K54RTE8CX99XG.png" alt="LinkedIn" width="24" height="24" style="display:block; border:0;"></a></td>
+                    <td style="padding:10px 18px;" class="mobile-social"><a href="https://api.whatsapp.com/send?phone=17173842982" target="_blank"><img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764338817385_Whatsapp%20-%20Black_01KB5CKP4WYTP1S02VYYJAEWAS.png" alt="WhatsApp" width="24" height="24" style="display:block; border:0;"></a></td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px;" class="mobile-divider-pad">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #A9A9A9; height:1px; font-size:0; line-height:0;"></td></tr></table>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:24px 0 8px;">
+                <a href="https://starkfuture.com" target="_blank" style="display:inline-block;"><img src="https://userimg-assets-eu.customeriomail.com/images/client-env-186063/1764338905459_Stark%20Future%20Wordmark%20-%20Black_01KB5CPC4AVTR95BCA8R4AHYTA.png" alt="Stark Future" width="160" style="display:block; width:160px; max-width:160px; height:auto;"></a>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:4px 24px 16px;">
+                <p style="margin:0; font-family:'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:12px; font-weight:400; color:#4F4F4F;">Ride anywhere, anytime</p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" class="attribution" style="padding:0 24px 80px; font-family:'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:11px; line-height:16px; color:#6B6B6B;">
+                <p><%= t('sent_using_product_name_open_source_software_html', product_url: "#{Docuseal::PRODUCT_EMAIL_URL}/open", product_name: Docuseal.product_name) %></p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

@@ -33,4 +33,7 @@ ActiveRecord::Base.transaction do
   end
   raise ActiveRecord::Rollback
 end
+sub = Submission.joins(:submitters).first
+html = SubmitterMailer.invitation_email(sub.submitters.first).message.body.decoded if sub # single-part HTML mail
+result[:stark_email_layout] = html.to_s.include?('Stark Future')
 puts "PROBE=#{JSON.generate(result)}"
