@@ -1,0 +1,13 @@
+<% if template.account_id == current_account.id %>
+  <span class="ml-2 self-center inline-flex items-center gap-1">
+    <span class="badge <%= template.stark_shared? ? 'badge-neutral' : 'badge-outline' %>" title="<%= template.stark_shared? ? 'Everyone at Stark can see and send this template' : 'Only its author and template managers can see this template' %>">
+      <%= template.stark_shared? ? 'Shared' : 'Private' %>
+    </span>
+    <% if can?(:share, template) %>
+      <%= button_to template.stark_shared? ? 'Make private' : 'Share with company',
+                    stark_template_visibility_path(template),
+                    method: :patch, params: { shared: !template.stark_shared? },
+                    form: { class: 'inline' }, class: 'link text-sm' %>
+    <% end %>
+  </span>
+<% end %>

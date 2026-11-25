@@ -1,0 +1,15 @@
+--- a/app/views/users/_role_select.html.erb
++++ b/app/views/users/_role_select.html.erb
+@@ -1,9 +1,9 @@
+ <div class="form-control">
+   <%= f.label :role, class: 'label' %>
+   <%= f.select :role, nil, {}, class: 'base-select' do %>
+-    <option value="admin"><%= t('admin') %></option>
+-    <option value="editor" disabled><%= t('editor') %></option>
+-    <option value="viewer" disabled><%= t('viewer') %></option>
++    <option value="member">Member: own contracts, own and shared templates</option>
++    <option value="template_manager">Template manager: all templates, own contracts</option>
++    <option value="admin"><%= t('admin') %>: everything, settings and users</option>
+   <% end %>
+   <% if Docuseal.multitenant? %>
+     <label class="label">

@@ -1,0 +1,4 @@
+--- a/app/views/templates/_access_icon.html.erb
++++ b/app/views/templates/_access_icon.html.erb
+@@ -0,0 +1 @@
++<%= render 'stark/template_visibility', template: %>

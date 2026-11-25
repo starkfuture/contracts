@@ -1,0 +1,29 @@
+# Every push and PR: the patches still apply to the pinned upstream tag with no fuzz, they are exactly
+# what tools/make_patches.py produces, and the Dockerfile builds on the same base digest as UPSTREAM.
+# No cloud credentials. The permission matrix runs on a cluster pod (tests/), not here.
+name: check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  patches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch upstream source at the pinned tag
+        run: |
+          TAG=$(sed -n 's/^TAG=//p' UPSTREAM)
+          curl -sSfL "https://codeload.github.com/docusealco/docuseal/tar.gz/refs/tags/$TAG" | tar xz -C "$RUNNER_TEMP"
+          echo "SRC=$RUNNER_TEMP/docuseal-$TAG" >> "$GITHUB_ENV"
+      - name: Patches are exactly what make_patches.py generates
+        run: |
+          python3 tools/make_patches.py "$SRC"
+          git diff --exit-code -- patches/
+      - name: Patches apply with no fuzz
+        run: python3 tools/assemble.py "$SRC"
+      - name: Dockerfile base matches UPSTREAM
+        run: |
+          MIRROR=$(sed -n 's/^MIRROR=//p' UPSTREAM)
+          grep -qx "FROM $MIRROR" Dockerfile
