@@ -19,10 +19,11 @@ for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:$PORT/up" && bre
 curl -s -o /dev/null "http://127.0.0.1:$PORT/up" || { echo "port-forward never answered"; exit 1; }
 python3 "$D/tests/matrix.py" "http://127.0.0.1:$PORT" "$OUT/cast.json"
 MATRIX=$?
+python3 "$D/tests/google.py" "http://127.0.0.1:$PORT" || MATRIX=$((MATRIX + 1))
 $K cp "$D/tests/probe.rb" docuseal-stark-test:/tmp/probe.rb -c docuseal >/dev/null
 PROBE=$($K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/probe.rb 2>&1' | tee "$OUT/probe.log" | sed -n 's/^PROBE=//p')
-if python3 -c "import json,sys; p=json.loads(sys.argv[1]); sys.exit(0 if p['member_bcc_kept']==0 and p['admin_bcc_kept']==1 and p.get('admin_bcc_survives_member_save') and p.get('member_change_put_back') and p.get('linked_shared_member')==0 and p.get('linked_shared_template_manager')==0 and p.get('linked_shared_admin')==1 and p.get('stark_email_layout') else 1)" "$PROBE" 2>/dev/null; then
-  echo "PASS probe: contract BCC admin-only and survives other saves; linked-account templates admin-only  [$PROBE]"; else
+if python3 -c "import json,sys; p=json.loads(sys.argv[1]); sys.exit(0 if p['member_bcc_kept']==0 and p['admin_bcc_kept']==1 and p.get('admin_bcc_survives_member_save') and p.get('member_change_put_back') and p.get('linked_shared_member')==0 and p.get('linked_shared_template_manager')==0 and p.get('linked_shared_admin')==1 and p.get('stark_email_layout') and p.get('google_new_user_role')=='member' else 1)" "$PROBE" 2>/dev/null; then
+  echo "PASS probe: contract BCC admin-only and survives other saves; linked-account templates admin-only; Google user is a member  [$PROBE]"; else
   echo "FAIL probe: contract BCC / linked-account templates  [$PROBE]"; [ -n "$PROBE" ] || tail -20 "$OUT/probe.log"; MATRIX=$((MATRIX + 1)); fi
 $K cp "$D/tests/routes.rb" docuseal-stark-test:/tmp/routes.rb -c docuseal >/dev/null
 $K exec docuseal-stark-test -c docuseal -- sh -c 'cd /app && bin/rails runner /tmp/routes.rb 2>/dev/null' > "$OUT/routes.txt"

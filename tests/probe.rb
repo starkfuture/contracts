@@ -36,4 +36,5 @@ end
 sub = Submission.joins(:submitters).first
 html = SubmitterMailer.invitation_email(sub.submitters.first).message.body.decoded if sub # single-part HTML mail
 result[:stark_email_layout] = html.to_s.include?('Stark Future')
+result[:google_new_user_role] = User.find_by(email: 'newbie@stark-test.example')&.role
 puts "PROBE=#{JSON.generate(result)}"

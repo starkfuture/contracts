@@ -29,6 +29,7 @@ GET /api/templates api/templates#index
 GET /api/templates/:id api/templates#show
 GET /api/templates/:template_id/submissions api/submissions#index
 GET /api/user api/users#show
+GET /auth/google stark/google_sessions#new
 GET /blobs_proxy/:signed_uuid/*filename api/active_storage_blobs_proxy#show
 GET /console_redirect console_redirect#index
 GET /d/:slug start_form#show
@@ -41,6 +42,7 @@ GET /e/:submissions_preview_slug/download submissions_preview_download#index
 GET /file/:signed_uuid/*filename api/active_storage_blobs_proxy#show
 GET /folders/:id template_folders#show
 GET /folders/:id/edit template_folders#edit
+GET /identity/connect/oidc-signin stark/google_sessions#create
 GET /invitation invitations#edit
 GET /js/:filename embed_scripts#show
 GET /manage console_redirect#index

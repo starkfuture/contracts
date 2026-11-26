@@ -5,6 +5,9 @@
 ActiveSupport.on_load(:routes) do
   patch '/stark/templates/:template_id/visibility', to: 'stark/template_visibility#update',
                                                     as: :stark_template_visibility
+  # Sign in with Google (Stark::Google). The callback path is the one registered in Google Cloud.
+  get '/auth/google', to: 'stark/google_sessions#new', as: :stark_google_sign_in
+  get '/identity/connect/oidc-signin', to: 'stark/google_sessions#create', as: :stark_google_callback
 end
 
 Rails.application.config.to_prepare do
