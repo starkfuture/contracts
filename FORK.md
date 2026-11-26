@@ -17,10 +17,14 @@ DocuSeal, unchanged.
 - Only admins decide who receives a copy of every signed contract (a template's BCC, or a
   contract's own BCC at send time), delete a template permanently (it destroys every contract made
   from it), or change account settings, including the template builder's custom-field library.
-- Only admins assign roles. The first user created at setup is admin. Existing users keep the role
+- Only admins assign roles and change a user's email. The first user created at setup is admin. Existing users keep the role
   they had: after the first deploy every pre-existing user is still admin until an admin changes it.
 - The built-in MCP server (`/mcp`, per-user tokens) follows the same rules: it asks the same
   permission class.
+- People sign in with their company Google account. A company address with no DocuSeal user yet gets
+  one as a member; an admin raises the role. Archived users stay out. Accounts outside the company
+  domain are refused, even inside a company Google Workspace. Password sign-in keeps working
+  (first setup, break-glass).
 
 ## How the fork is built
 
@@ -55,14 +59,17 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | 0008 | `app/controllers/account_custom_fields_controller.rb` | The custom-field library is admin-only. |
 | 0009 | `app/models/template.rb` | Template lists load `stark_shared`, which the rules read. |
 | 0010 | `lib/templates.rb` | Templates shared from linked accounts (web list and API `shared=true`) are admin-only: they bypass the Stark rules. |
+| 0011 | `app/views/devise/sessions/_omniauthable.html.erb` | "Sign in with Google" on the sign-in page (empty upstream). |
 
 | Stark file | What |
 |---|---|
 | `lib/stark/ability.rb` | The rules for member and template_manager. |
 | `lib/stark/template_guard.rb` | Publishing, a template's BCC and permanent delete, enforced on the model so every path (web, API, MCP, clone) is covered. |
+| `lib/stark/user_guard.rb` | Only admins change a user's email (Google sign-in links people by email). |
 | `lib/stark/submission_guard.rb` | A contract's own BCC set or changed by anyone but an admin is put back; other saves (signing) leave it alone. |
 | `config/locales/stark.en.yml` | Role names in the users list. |
 | `lib/stark.rb` | The source URL for the "Source" link. |
+| `lib/stark/google.rb`, `app/controllers/stark/google_sessions_controller.rb`, `app/views/stark/_google_sign_in.html.erb` | Sign in with Google (OpenID Connect code flow, ID token signature checked against Google's keys with the `jwt` gem DocuSeal already ships). |
 | `app/views/layouts/mailer.html.erb` | The Stark email layout (replaces upstream's whole file, which is pinned so an upgrade shows its changes). Email texts stay in Settings → Personalization. |
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
@@ -115,10 +122,24 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
   still being signed.
 - Members can create templates from a URL through the MCP server; upstream blocks internal
   addresses on that download.
+- Google sign-in does not ask for DocuSeal's own two-factor code: the company Google account's
+  own sign-in rules (2-step verification) apply instead.
 - Only amd64 is tested; the arm64 image is the same files on upstream's arm64 base.
 - After a template is made private again, people who sent contracts from it still see those
   contracts, but not the template's own pages (archived list, export).
 - Database and S3 administrators see everything.
+
+## Settings
+
+Google sign-in is off unless both are set (Google Cloud OAuth client; redirect URI
+`https://<host>/identity/connect/oidc-signin`, the path is fixed because it is the one registered):
+
+- `STARK_GOOGLE_CLIENT_ID`, `STARK_GOOGLE_CLIENT_SECRET`
+- `STARK_GOOGLE_DOMAIN`: the company domain allowed to sign in (default `starkfuture.com`)
+- `STARK_GOOGLE_REDIRECT_URI`: only if the public URL differs from what the app sees
+- `STARK_GOOGLE_AUTH_URL`, `_TOKEN_URL`, `_JWKS_URL`: tests only (`tests/google_stub.rb`). Never set
+  them in a real environment: they decide whose tokens are trusted.
+- `STARK_SOURCE_URL`: the "Source" link (default this repository).
 
 ## Upgrading DocuSeal (about once a year)
 
@@ -143,9 +164,11 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 CI (`check.yml`) checks the pins and patches and parses every Ruby file on every PR. The permission
 tests need a running DocuSeal: `tests/` runs the real image with `build/app` and a throwaway
 Postgres (the image staging's own database runs) on a pod in a dynamic sandbox namespace, seeds one
-admin, one template manager and two members, and checks 80 allowed and denied cases over the API,
-web pages and the built-in MCP server, a probe in the pod (contract BCC kept from non-admins and
-through signing; linked-account templates admin-only), and the 251-route snapshot:
+admin, one template manager and two members, and checks 82 allowed and denied cases over the API,
+web pages and the built-in MCP server, 19 Google sign-in cases against a stand-in Google that signs
+tokens with its own key (good, forged, expired, wrong app, wrong issuer, outside domain, unverified,
+company address outside the Workspace, replayed, tampered state, archived user, new user), a probe in the pod (contract BCC kept from non-admins and
+through signing; linked-account templates admin-only; the email layout; a Google-created user is a member), and the 253-route snapshot:
 
     python3 tools/assemble.py
     bash tests/run_pod_tests.sh sandboxenv-<env>   # recreates the pod, seeds, runs everything

@@ -37,6 +37,10 @@ templates = {
   't_shared' => template_for(account, users['admin'], 'Company shared', shared: true)
 }
 
+# An archived user: Google sign-in must not let them back in (tests/google.py).
+account.users.create!(email: 'archived@stark-test.example', first_name: 'a', last_name: 'a', role: 'member',
+                      password: SecureRandom.base58(20), archived_at: Time.current)
+
 # A member created with no role given must be a member (least privilege by default).
 default_user = account.users.create!(email: 'default@stark-test.example', first_name: 'd', last_name: 'd',
                                      password: SecureRandom.base58(20))

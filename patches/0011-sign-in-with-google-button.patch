@@ -1,0 +1,4 @@
+--- a/app/views/devise/sessions/_omniauthable.html.erb
++++ b/app/views/devise/sessions/_omniauthable.html.erb
+@@ -0,0 +1 @@
++<%= render 'stark/google_sign_in' %>

@@ -206,6 +206,14 @@ landed = api("m1", "GET", "/user")[1].get("first_name") == "m1renamed"
 check("web: member editing itself keeps the edit but not a role change",
       landed and s2 == 200 and ids(me) == expect_templates["m1"], f"update {s} {loc} landed={landed}")
 
+# Google sign-in finds people by email, so only admins may change one (Stark::UserGuard).
+s, loc, _ = web["m1"].form("PATCH", "/settings/profile/update_contact", {"user[email]": "colleague@stark-test.example"},
+                           "/settings/profile")
+check("web: member cannot change its own email", api("m1", "GET", "/user")[1].get("email") == U["m1"]["email"], f"{s} {loc}")
+s, loc, _ = web["admin"].form("PATCH", f"/users/{U['m2']['id']}", {"user[email]": "m2-new@stark-test.example", "user[role]": "member"},
+                              f"/users/{U['m2']['id']}/edit")
+check("web: admin can change a user's email", api("m2", "GET", "/user")[1].get("email") == "m2-new@stark-test.example", f"{s} {loc}")
+
 # The admin's user form must keep each user's role: a form that preselects the first option would
 # silently demote anyone whose user an admin edits.
 _, _, edit = web["admin"].get(f"/users/{U['tm']['id']}/edit")

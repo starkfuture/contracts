@@ -17,8 +17,9 @@ IMAGE = re.search(r"^MIRROR=(\S+)$", open(os.path.join(ROOT, "UPSTREAM")).read()
 POSTGRES = "ghcr.io/zalando/spilo-17:4.0-p2"
 NAME = "docuseal-stark-test"
 
-data = {"PINS": open(os.path.join(ROOT, "PINS")).read()}
-items = [{"key": "PINS", "path": "PINS"}]
+data = {"PINS": open(os.path.join(ROOT, "PINS")).read(),
+        "google_stub.rb": open(os.path.join(ROOT, "tests", "google_stub.rb")).read()}
+items = [{"key": "PINS", "path": "PINS"}, {"key": "google_stub.rb", "path": "google_stub.rb"}]
 for d, _, fs in os.walk(APP):
     for f in fs:
         rel = os.path.relpath(os.path.join(d, f), APP)
@@ -31,6 +32,8 @@ start_app = " && ".join([
     "cd /app && sha256sum -c -s /stark/PINS || { echo 'image does not match PINS'; exit 1; }",
     "cd /stark/app && for f in $(find -L . -path '*/..*' -prune -o -type f -print); do mkdir -p /app/$(dirname $f) && cp -L $f /app/$f; done",
     "until nc -z 127.0.0.1 5432; do sleep 1; done",
+    # stand-in Google (tests/google_stub.rb); upstream ignores the STARK_GOOGLE_* settings
+    "(cd /app && bin/bundle exec ruby /stark/google_stub.rb &)",
     "cd /app && exec bin/bundle exec puma -C config/puma.rb --dir /app",
 ])
 start_db = ("B=/usr/lib/postgresql/17/bin; $B/initdb -D /pgdata/d -U postgres --auth=trust >/dev/null && "
@@ -50,7 +53,11 @@ pod = {
              "env": [{"name": "SECRET_KEY_BASE", "value": secrets.token_hex(64)},
                      {"name": "FORCE_SSL", "value": "false"},
                      {"name": "WORKDIR", "value": "/data/docuseal"},
-                     {"name": "DATABASE_URL", "value": "postgresql://postgres@127.0.0.1:5432/postgres"}],
+                     {"name": "DATABASE_URL", "value": "postgresql://postgres@127.0.0.1:5432/postgres"}] +
+                    [{"name": f"STARK_GOOGLE_{k}", "value": v} for k, v in {
+                        "CLIENT_ID": "test-client", "CLIENT_SECRET": secrets.token_hex(16),
+                        "DOMAIN": "stark-test.example", "AUTH_URL": "http://127.0.0.1:8099/auth",
+                        "TOKEN_URL": "http://127.0.0.1:8099/token", "JWKS_URL": "http://127.0.0.1:8099/certs"}.items()],
              "ports": [{"containerPort": 3000}],
              "volumeMounts": [{"name": "overlay", "mountPath": "/stark"}, {"name": "data", "mountPath": "/data/docuseal"}],
              "resources": {"requests": {"cpu": "200m", "memory": "768Mi"}, "limits": {"memory": "1536Mi"}},
