@@ -25,6 +25,7 @@ def claims(scenario, nonce)
   when 'newuser' then base.merge('email' => "Newbie@#{DOMAIN}", 'given_name' => 'New', 'family_name' => 'Bie')
   when 'archived' then base.merge('email' => "archived@#{DOMAIN}")
   when 'otherdomain' then base.merge('email' => 'someone@gmail.com', 'hd' => nil)
+  when 'nohd' then base.merge('hd' => nil) # a consumer Google account registered on a company address
   when 'hdspoof' then base.merge('email' => 'someone@evil.example')
   when 'unverified' then base.merge('email_verified' => false)
   when 'wrongaud' then base.merge('aud' => 'someone-elses-client')

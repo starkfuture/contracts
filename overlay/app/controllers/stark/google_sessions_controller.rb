@@ -3,13 +3,19 @@
 module Stark
   # "Sign in with Google". A company Google account signs in as the DocuSeal user with the same email.
   # Someone from the company domain with no DocuSeal user yet gets one, as a member (least privilege;
-  # an admin raises the role). Archived users stay locked out. Password sign-in keeps working.
+  # an admin raises the role). Archived or locked users stay out. Password sign-in keeps working.
+  # Linking by email is safe because only admins can change a user's email (Stark::UserGuard).
   class GoogleSessionsController < ApplicationController
     skip_before_action :authenticate_user!
     skip_before_action :maybe_redirect_to_setup
     skip_authorization_check
 
     before_action { head :not_found unless Stark::Google.enabled? }
+    # Each callback costs a call to Google. Per network address, so an office behind one address
+    # still has room: 30 sign-ins a minute.
+    before_action(only: :create) do
+      RateLimit.call("stark-google-#{request.remote_ip}", limit: 30, ttl: 1.minute, enabled: true)
+    end
 
     def new
       session[:stark_google] = { 'state' => SecureRandom.urlsafe_base64(32), 'nonce' => SecureRandom.urlsafe_base64(32) }
@@ -26,7 +32,7 @@ module Stark
 
       claims = Stark::Google.claims_for(code: params[:code].to_s, redirect_uri:, nonce: expected['nonce'])
       user = find_or_create_user(claims)
-      return refuse('This user is archived. Ask an admin.') unless user.active_for_authentication?
+      return refuse('This user cannot sign in (archived or locked). Ask an admin.') unless user.active_for_authentication?
 
       sign_in(user)
       redirect_to stored_location_for(:user) || root_path
@@ -42,10 +48,15 @@ module Stark
     end
 
     def find_or_create_user(claims)
-      User.find_by(email: claims['email']) ||
-        Account.order(:id).first.users.create!(email: claims['email'], password: SecureRandom.base58(32),
-                                               first_name: claims['given_name'], last_name: claims['family_name'],
-                                               role: User::MEMBER_ROLE)
+      User.find_by(email: claims['email']) || create_member(claims)
+    rescue ActiveRecord::RecordNotUnique # two first sign-ins at once
+      User.find_by!(email: claims['email'])
+    end
+
+    def create_member(claims)
+      account = Account.order(:id).first or raise Stark::Google::Error, 'DocuSeal is not set up yet'
+      account.users.create!(email: claims['email'], password: SecureRandom.base58(32), role: User::MEMBER_ROLE,
+                            first_name: claims['given_name'], last_name: claims['family_name'])
     end
 
     def refuse(message)

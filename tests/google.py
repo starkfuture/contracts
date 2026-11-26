@@ -66,6 +66,7 @@ check("a new company account gets a DocuSeal user and is signed in", b.signed_in
 check("the new user is a member (no users page)", b.get("/settings/users")[0] != 200)
 
 for scenario, why in [("archived", "an archived user"), ("otherdomain", "an account outside the company"),
+                      ("nohd", "a company address on a Google account outside the company Workspace"),
                       ("hdspoof", "a company Workspace account with an outside address"),
                       ("unverified", "an unverified email"), ("wrongaud", "a token for another app"),
                       ("wrongiss", "a token from another issuer"), ("expired", "an expired token"),
@@ -76,10 +77,10 @@ for scenario, why in [("archived", "an archived user"), ("otherdomain", "an acco
 b = Browser(); _, _, q = b.start(); s, loc, _ = b.back("admin", q, state="tampered")
 check("refused: a callback whose state does not match the session", "/sign_in" in loc and not b.signed_in(), f"{s} {loc}")
 
-b = Browser(); _, _, q = b.start(); s, loc, _ = b.back("admin", q, state=None)
-c = Browser()  # another browser replaying the same callback URL (no session state)
-s2, loc2, _ = c.back("admin", q)
-check("refused: a callback replayed in another browser", "/sign_in" in loc2 and not c.signed_in(), f"{s2} {loc2}")
+b = Browser(); _, _, q = b.start(); b.back("newuser", q)  # signs in once, as a member
+s2, loc2, _ = b.back("admin", q)  # the same state again, now claiming the admin: the state was used up
+check("refused: the same callback replayed after it signed in (no switch to admin)",
+      "/sign_in" in loc2 and b.get("/settings/users")[0] != 200, f"{s2} {loc2}")
 s3, loc3, _ = Browser().get("/identity/connect/oidc-signin?code=admin~x&state=x")
 check("refused: a callback with no sign-in started", "/sign_in" in loc3, f"{s3} {loc3}")
 

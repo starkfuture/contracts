@@ -17,7 +17,7 @@ DocuSeal, unchanged.
 - Only admins decide who receives a copy of every signed contract (a template's BCC, or a
   contract's own BCC at send time), delete a template permanently (it destroys every contract made
   from it), or change account settings, including the template builder's custom-field library.
-- Only admins assign roles. The first user created at setup is admin. Existing users keep the role
+- Only admins assign roles and change a user's email. The first user created at setup is admin. Existing users keep the role
   they had: after the first deploy every pre-existing user is still admin until an admin changes it.
 - The built-in MCP server (`/mcp`, per-user tokens) follows the same rules: it asks the same
   permission class.
@@ -65,6 +65,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 |---|---|
 | `lib/stark/ability.rb` | The rules for member and template_manager. |
 | `lib/stark/template_guard.rb` | Publishing, a template's BCC and permanent delete, enforced on the model so every path (web, API, MCP, clone) is covered. |
+| `lib/stark/user_guard.rb` | Only admins change a user's email (Google sign-in links people by email). |
 | `lib/stark/submission_guard.rb` | A contract's own BCC set or changed by anyone but an admin is put back; other saves (signing) leave it alone. |
 | `config/locales/stark.en.yml` | Role names in the users list. |
 | `lib/stark.rb` | The source URL for the "Source" link. |
@@ -163,11 +164,11 @@ Google sign-in is off unless both are set (Google Cloud OAuth client; redirect U
 CI (`check.yml`) checks the pins and patches and parses every Ruby file on every PR. The permission
 tests need a running DocuSeal: `tests/` runs the real image with `build/app` and a throwaway
 Postgres (the image staging's own database runs) on a pod in a dynamic sandbox namespace, seeds one
-admin, one template manager and two members, and checks 80 allowed and denied cases over the API,
-web pages and the built-in MCP server, 18 Google sign-in cases against a stand-in Google that signs
+admin, one template manager and two members, and checks 82 allowed and denied cases over the API,
+web pages and the built-in MCP server, 19 Google sign-in cases against a stand-in Google that signs
 tokens with its own key (good, forged, expired, wrong app, wrong issuer, outside domain, unverified,
-replayed, tampered state, archived user, new user), a probe in the pod (contract BCC kept from non-admins and
-through signing; linked-account templates admin-only), and the 253-route snapshot:
+company address outside the Workspace, replayed, tampered state, archived user, new user), a probe in the pod (contract BCC kept from non-admins and
+through signing; linked-account templates admin-only; the email layout; a Google-created user is a member), and the 253-route snapshot:
 
     python3 tools/assemble.py
     bash tests/run_pod_tests.sh sandboxenv-<env>   # recreates the pod, seeds, runs everything

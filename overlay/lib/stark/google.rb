@@ -12,6 +12,8 @@ module Stark
     JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs'
     ISSUERS = ['https://accounts.google.com', 'accounts.google.com'].freeze
     CALLBACK_PATH = '/identity/connect/oidc-signin'
+    TEST_HOSTS = %w[127.0.0.1 localhost].freeze
+    TIMEOUT = 5
 
     Error = Class.new(StandardError)
 
@@ -30,9 +32,11 @@ module Stark
       ENV.fetch('STARK_GOOGLE_DOMAIN', 'starkfuture.com').downcase
     end
 
-    # The three endpoints can be pointed elsewhere for tests only (tests/google_stub.rb).
+    # The endpoints decide whose tokens are trusted. They can be redirected for tests only
+    # (tests/google_stub.rb), and only to this machine: any other override is ignored.
     def endpoint(name, default)
-      ENV.fetch("STARK_GOOGLE_#{name}_URL", default)
+      url = ENV.fetch("STARK_GOOGLE_#{name}_URL", nil)
+      url.present? && URI(url).host.in?(TEST_HOSTS) ? url : default
     end
 
     def authorize_url(redirect_uri:, state:, nonce:)
@@ -43,16 +47,17 @@ module Stark
 
     # Exchanges the code and returns the verified ID token claims. Raises Error on anything off.
     def claims_for(code:, redirect_uri:, nonce:)
-      response = Net::HTTP.post_form(URI(endpoint('TOKEN', TOKEN_URL)),
-                                     code:, redirect_uri:, client_id:, grant_type: 'authorization_code',
-                                     client_secret: ENV.fetch('STARK_GOOGLE_CLIENT_SECRET'))
+      response = http(:post, endpoint('TOKEN', TOKEN_URL),
+                      { code:, redirect_uri:, client_id:, grant_type: 'authorization_code',
+                        client_secret: ENV.fetch('STARK_GOOGLE_CLIENT_SECRET') })
       raise Error, "token endpoint returned #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
       id_token = JSON.parse(response.body)['id_token'] or raise Error, 'no id_token'
-      claims, = JWT.decode(id_token, nil, true, algorithms: ['RS256'], jwks: jwks,
+      claims, = JWT.decode(id_token, nil, true, algorithms: ['RS256'], jwks: method(:jwks),
                                                 iss: ISSUERS, verify_iss: true, aud: client_id, verify_aud: true)
       check!(claims, nonce)
-    rescue JWT::DecodeError, JSON::ParserError => e
+    rescue JWT::DecodeError, JSON::ParserError, IOError, SystemCallError, SocketError, Timeout::Error,
+           OpenSSL::SSL::SSLError => e
       raise Error, e.class.name
     end
 
@@ -67,9 +72,31 @@ module Stark
       claims.merge('email' => email)
     end
 
-    def jwks
+    # Google's signing keys, cached for an hour. A token signed with a key we have not seen (Google
+    # rotated) refetches once, at most every five minutes. Only a well-formed key set is cached.
+    def jwks(options = {})
+      if options[:kid_not_found] && Rails.cache.write('stark/google/jwks_refetched', true, expires_in: 5.minutes,
+                                                                                         unless_exist: true)
+        Rails.cache.delete('stark/google/jwks')
+      end
       Rails.cache.fetch('stark/google/jwks', expires_in: 1.hour) do
-        JSON.parse(Net::HTTP.get(URI(endpoint('JWKS', JWKS_URL))))
+        response = http(:get, endpoint('JWKS', JWKS_URL))
+        keys = response.is_a?(Net::HTTPSuccess) && JSON.parse(response.body)
+        raise Error, 'bad key set' unless keys.is_a?(Hash) && keys['keys'].is_a?(Array) && keys['keys'].any?
+
+        keys
+      end
+    end
+
+    def http(verb, url, form = nil)
+      uri = URI(url)
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https',
+                                          open_timeout: TIMEOUT, read_timeout: TIMEOUT) do |h|
+        if verb == :post
+          h.post(uri.path, URI.encode_www_form(form), 'Content-Type' => 'application/x-www-form-urlencoded')
+        else
+          h.get(uri.request_uri)
+        end
       end
     end
   end
