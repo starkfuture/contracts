@@ -1,0 +1,12 @@
+--- a/app/controllers/account_custom_fields_controller.rb
++++ b/app/controllers/account_custom_fields_controller.rb
+@@ -4,7 +4,8 @@
+   before_action :load_account_config, only: :create
+ 
+   def create
+-    authorize!(:create, Template)
++    # Stark: the custom-field library is an account setting (every builder sees it): admin-only.
++    authorize!(:manage, @account_config)
+ 
+     @account_config.update!(account_config_params)
+ 

@@ -1,0 +1,15 @@
+--- a/lib/ability.rb
++++ b/lib/ability.rb
+@@ -4,6 +4,12 @@
+   include CanCan::Ability
+ 
+   def initialize(user)
++    # Stark: every role but admin gets the scoped rules in lib/stark/ability.rb.
++    return Stark::Ability.call(self, user) unless user.role == User::ADMIN_ROLE
++
++    # Stark: admins may share templates within the company (template_manager has it via :manage).
++    can :share, Template, account_id: user.account_id
++
+     can %i[read create update], Template, Abilities::TemplateConditions.collection(user) do |template|
+       Abilities::TemplateConditions.entity(template, user:, ability: 'manage')
+     end

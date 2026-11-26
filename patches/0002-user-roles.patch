@@ -1,0 +1,24 @@
+--- a/app/models/user.rb
++++ b/app/models/user.rb
+@@ -48,7 +48,10 @@
+ #
+ class User < ApplicationRecord
+   ROLES = [
+-    ADMIN_ROLE = 'admin'
++    ADMIN_ROLE = 'admin',
++    # Stark roles (lib/stark/ability.rb).
++    TEMPLATE_MANAGER_ROLE = 'template_manager',
++    MEMBER_ROLE = 'member'
+   ].freeze
+ 
+   EMAIL_REGEXP = /[^@;,<>\s]+@[^@;,<>\s]+/
+@@ -73,7 +76,8 @@
+ 
+   devise :two_factor_authenticatable, :recoverable, :rememberable, :validatable, :trackable, :lockable
+ 
+-  attribute :role, :string, default: ADMIN_ROLE
++  # Stark: least privilege by default; the first user is made admin by SetupController.
++  attribute :role, :string, default: MEMBER_ROLE
+   attribute :uuid, :string, default: -> { SecureRandom.uuid }
+ 
+   scope :active, -> { where(archived_at: nil) }

@@ -1,0 +1,19 @@
+# Every PR and every push to main: the pinned upstream files are unchanged, every patch applies to the
+# pinned upstream tag, and every Ruby file in build/app parses. No cloud credentials.
+# The permission tests need a running DocuSeal: tests/run_pod_tests.sh (see FORK.md).
+name: check
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  patches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Pins hold and patches apply to the pinned upstream tag
+        run: python3 tools/assemble.py
+      - name: Every Ruby file parses
+        run: find build/app -name '*.rb' -print0 | xargs -0 -n1 ruby -c > /dev/null

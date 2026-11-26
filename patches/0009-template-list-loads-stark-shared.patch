@@ -1,0 +1,12 @@
+--- a/app/models/template.rb
++++ b/app/models/template.rb
+@@ -81,7 +81,8 @@
+   scope :active, -> { where(archived_at: nil) }
+   scope :archived, -> { where.not(archived_at: nil) }
+ 
+-  scope :select_for_list, -> { select(:id, :name, :author_id, :account_id, :created_at, :archived_at, :folder_id) }
++  # Stark: stark_shared is read by the permission rules on every listed template.
++  scope :select_for_list, -> { select(:id, :name, :author_id, :account_id, :created_at, :archived_at, :folder_id, :stark_shared) }
+ 
+   def application_key
+     external_id
