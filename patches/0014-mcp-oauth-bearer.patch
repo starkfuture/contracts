@@ -1,0 +1,25 @@
+--- a/app/controllers/mcp/mcp_base_controller.rb
++++ b/app/controllers/mcp/mcp_base_controller.rb
+@@ -51,7 +51,11 @@
+     end
+ 
+     def authenticate_user!
+-      render json: { error: 'Not authenticated' }, status: :unauthorized unless current_user
++      return if current_user
++
++      # Stark: tells an MCP client (claude.ai) where to sign in (RFC 9728).
++      response.headers['WWW-Authenticate'] = %(Bearer resource_metadata="#{Stark::McpOauth.resource_metadata_url}")
++      render json: { error: 'Not authenticated' }, status: :unauthorized
+     end
+ 
+     def verify_mcp_enabled!
+@@ -75,7 +79,8 @@
+ 
+       sha256 = Digest::SHA256.hexdigest(token)
+ 
+-      User.joins(:mcp_tokens).active.find_by(mcp_tokens: { sha256:, archived_at: nil })
++      User.joins(:mcp_tokens).active.find_by(mcp_tokens: { sha256:, archived_at: nil }) ||
++        Stark::McpOauth.user_for_access_token(sha256) # Stark: tokens from signing in with Google
+     end
+   end
+ end

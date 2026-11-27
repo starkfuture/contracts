@@ -31,7 +31,7 @@ module Stark
       end
 
       claims = Stark::Google.claims_for(code: params[:code].to_s, redirect_uri:, nonce: expected['nonce'])
-      user = find_or_create_user(claims)
+      user = Stark::Google.find_or_create_user(claims)
       return refuse('This user cannot sign in (archived or locked). Ask an admin.') unless user.active_for_authentication?
 
       sign_in(user)
@@ -45,18 +45,6 @@ module Stark
 
     def redirect_uri
       ENV.fetch('STARK_GOOGLE_REDIRECT_URI', "#{request.base_url}#{Stark::Google::CALLBACK_PATH}")
-    end
-
-    def find_or_create_user(claims)
-      User.find_by(email: claims['email']) || create_member(claims)
-    rescue ActiveRecord::RecordNotUnique # two first sign-ins at once
-      User.find_by!(email: claims['email'])
-    end
-
-    def create_member(claims)
-      account = Account.order(:id).first or raise Stark::Google::Error, 'DocuSeal is not set up yet'
-      account.users.create!(email: claims['email'], password: SecureRandom.base58(32), role: User::MEMBER_ROLE,
-                            first_name: claims['given_name'], last_name: claims['family_name'])
     end
 
     def refuse(message)
