@@ -32,6 +32,13 @@ DocuSeal, unchanged.
   one as a member; an admin raises the role. Archived users stay out. Accounts outside the company
   domain are refused, even inside a company Google Workspace. Password sign-in keeps working
   (first setup, break-glass).
+- Adding the MCP server to Claude (claude.ai custom connector) needs no token: Claude sends the person
+  to company Google, they confirm once, and Claude then acts as exactly their DocuSeal user. Who may
+  connect follows the Google sign-in rules above. The connection follows the person's role, archiving
+  and the account's MCP switch on every call, so a change applies at once. It lasts at most 30 days,
+  then the person signs in with Google again. Hand-made tokens (Settings -> MCP) keep working.
+- Whoever leaves the company is archived in DocuSeal: that ends their Claude connection at once.
+  Losing the Google account only stops new connections; an existing one runs to its 30-day end.
 
 ## How the fork is built
 
@@ -71,6 +78,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | 0011 | `app/views/devise/sessions/_omniauthable.html.erb` | "Sign in with Google" on the sign-in page (empty upstream). |
 | 0012 | `app/controllers/mcp_controller.rb` | Registers the Stark MCP tools. |
 | 0013 | `app/controllers/mcp/send_documents_controller.rb` | Send without email (returns the signing links), signing order, invitation text, editable prefill. |
+| 0014 | `app/controllers/mcp/mcp_base_controller.rb` | The MCP server also accepts tokens from the Claude sign-in, and its 401 says where to sign in. |
 
 | Stark file | What |
 |---|---|
@@ -85,6 +93,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
 | `db/migrate/…_stark_add_shared_to_templates.rb` | `templates.stark_shared`, false for every existing template. |
+| `lib/stark/mcp_oauth.rb`, `app/controllers/stark/mcp_oauth_controller.rb`, `db/migrate/…_stark_create_mcp_oauth.rb` | Claude sign-in for the MCP server (OAuth 2.1 as the MCP specification asks: discovery, client registration, PKCE, rotating refresh tokens). Identity comes from `Stark::Google`, the same code as the web sign-in. |
 | `app/controllers/mcp/` | The Stark MCP tools. Each asks the permission question its web or API counterpart asks. |
 
 ## Traps
@@ -145,6 +154,17 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 - After a template is made private again, people who sent contracts from it still see those
   contracts, but not the template's own pages (archived list, export).
 - Database and S3 administrators see everything.
+- Claude connections cannot be listed or ended from the web, and disconnecting in Claude does not end
+  one here: it ends when the user is archived, the MCP switch goes off, or 30 days pass.
+- Any refresh token used a second time ends the Claude connection (a copy is assumed to exist), so a
+  refresh Claude retries after a lost answer, or sends twice at once, means signing in again. Chosen
+  over a grace period because a stolen token is the case it exists for.
+- The Claude sign-in's rate limits are per app process and network address, like upstream's.
+- A client registered but never connected through is dropped after a day; a sign-in started with it
+  later gets an error page (whether Claude then registers again is unverified).
+- Anyone may register a client, but codes only ever go to Claude's callback addresses; what stops a
+  colleague's sign-in link from connecting their Claude to your account is the confirmation page
+  naming your user, and Claude checking its own state.
 
 ## Settings
 
@@ -157,6 +177,13 @@ Google sign-in is off unless both are set (Google Cloud OAuth client; redirect U
 - `STARK_GOOGLE_AUTH_URL`, `_TOKEN_URL`, `_JWKS_URL`: tests only (`tests/google_stub.rb`). Never set
   them in a real environment: they decide whose tokens are trusted.
 - `STARK_SOURCE_URL`: the "Source" link (default this repository).
+
+The Claude sign-in uses the same Google client and is off with it. Everything it says and redirects
+to is on the public host (`APP_URL`), never the host a request arrived on, because claude.ai reaches
+only that one. That host must route `/mcp`, `/.well-known/oauth-protected-resource` (and `/mcp` under
+it), `/.well-known/oauth-authorization-server` and `/oauth/*`, and the Google client must also list
+`https://<public host>/oauth/google/callback`. `STARK_MCP_OAUTH_REDIRECT_URIS` (space separated)
+replaces the callback addresses clients may register (default claude.ai's and claude.com's).
 
 ## Upgrading DocuSeal (about once a year)
 
@@ -189,7 +216,11 @@ web pages and the built-in MCP server (every tool, every role, another sender's 
 with MCP off), 19 Google sign-in cases against a stand-in Google that signs
 tokens with its own key (good, forged, expired, wrong app, wrong issuer, outside domain, unverified,
 company address outside the Workspace, replayed, tampered state, archived user, new user), a probe in the pod (contract BCC kept from non-admins and
-through signing; linked-account templates admin-only; the email layout; a Google-created user is a member; the MCP invitation email), and the 253-route snapshot:
+through signing; linked-account templates admin-only; the email layout; a Google-created user is a member; the MCP invitation email),
+the Claude sign-in as claude.ai does it (`tests/mcp_oauth.py`: discovery, registration allowed and
+refused, PKCE, code reuse, redirect mismatch, expiry, refresh rotation and reuse, the same refusals as
+the web sign-in, the confirmation from another browser, no web session made, a member's token seeing
+what its own manual token sees, and role, archiving and the MCP switch applying on the next call), and the route snapshot:
 
     python3 tools/assemble.py
     bash tests/run_pod_tests.sh sandboxenv-<env>   # recreates the pod, seeds, runs everything

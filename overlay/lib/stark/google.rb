@@ -72,6 +72,22 @@ module Stark
       claims.merge('email' => email)
     end
 
+    # The DocuSeal user for verified claims, for every Google sign-in (web and MCP connector). Someone from the
+    # company domain with no user yet gets one, as a member (least privilege; an admin raises the role).
+    # Linking by email is safe because only admins can change a user's email (Stark::UserGuard).
+    # Callers still refuse users that may not sign in (archived, locked).
+    def find_or_create_user(claims)
+      User.find_by(email: claims['email']) || create_member(claims)
+    rescue ActiveRecord::RecordNotUnique # two first sign-ins at once
+      User.find_by!(email: claims['email'])
+    end
+
+    def create_member(claims)
+      account = Account.order(:id).first or raise Error, 'DocuSeal is not set up yet'
+      account.users.create!(email: claims['email'], password: SecureRandom.base58(32), role: User::MEMBER_ROLE,
+                            first_name: claims['given_name'], last_name: claims['family_name'])
+    end
+
     # Google's signing keys, cached for an hour. A token signed with a key we have not seen (Google
     # rotated) refetches once, at most every five minutes. Only a well-formed key set is cached.
     def jwks(options = {})

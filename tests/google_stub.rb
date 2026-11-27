@@ -32,6 +32,7 @@ def claims(scenario, nonce)
   when 'wrongiss' then base.merge('iss' => 'https://evil.example')
   when 'expired' then base.merge('iat' => now - 7200, 'exp' => now - 3600)
   when 'wrongnonce' then base.merge('nonce' => 'not-the-one')
+  when /\Aas-(\w+)\z/ then base.merge('email' => "#{Regexp.last_match(1)}@#{DOMAIN}") # any company user (tests/mcp_oauth.py)
   else base
   end
 end

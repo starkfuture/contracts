@@ -18,6 +18,8 @@ DELETE /user_initials user_initials#destroy
 DELETE /user_signature user_signatures#destroy
 DELETE /users/:id users#destroy
 GET / dashboard#index
+GET /.well-known/oauth-authorization-server stark/mcp_oauth#authorization_server
+GET /.well-known/oauth-protected-resource(/mcp) stark/mcp_oauth#protected_resource
 GET /api/events/form/:type api/form_events#index
 GET /api/events/submission/:type api/submission_events#index
 GET /api/submissions api/submissions#index
@@ -52,6 +54,8 @@ GET /mfa_setup/edit mfa_setup#edit
 GET /mfa_setup/new mfa_setup#new
 GET /new templates_uploads#show
 GET /newsletter newsletters#show
+GET /oauth/authorize stark/mcp_oauth#authorize
+GET /oauth/google/callback stark/mcp_oauth#callback
 GET /p/:slug submit_form_draw_signature#show
 GET /password/edit passwords#edit
 GET /password/new passwords#new
@@ -176,6 +180,9 @@ POST /api/templates/:template_id/submissions api/submissions#create
 POST /api/tools/merge api/tools#merge
 POST /api/tools/verify api/tools#verify
 POST /mfa_setup mfa_setup#create
+POST /oauth/consent stark/mcp_oauth#consent
+POST /oauth/register stark/mcp_oauth#register
+POST /oauth/token stark/mcp_oauth#token
 POST /password passwords#create
 POST /s/:submit_form_slug/click_email submit_form_click_email#create
 POST /s/:submit_form_slug/decline submit_form_decline#create
