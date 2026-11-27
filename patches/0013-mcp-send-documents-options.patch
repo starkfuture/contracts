@@ -1,0 +1,106 @@
+--- a/app/controllers/mcp/send_documents_controller.rb
++++ b/app/controllers/mcp/send_documents_controller.rb
+@@ -5,7 +5,8 @@
+     SCHEMA = {
+       name: 'send_documents',
+       title: 'Send Documents',
+-      description: 'Send a document template for signing to specified submitters',
++      description: 'Send a document template for signing to specified submitters. With send_email false no ' \
++                   'email is sent and the result lists each signer\'s signing URL to hand over yourself.',
+       inputSchema: {
+         type: 'object',
+         properties: {
+@@ -37,7 +38,7 @@
+                 },
+                 fields: {
+                   type: 'array',
+-                  description: 'Prefill field values for this submitter (fields become readonly)',
++                  description: 'Prefill field values for this submitter (readonly unless readonly is false)',
+                   items: {
+                     type: 'object',
+                     properties: {
+@@ -47,6 +48,10 @@
+                       },
+                       value: {
+                         description: 'Prefilled value for the field'
++                      },
++                      readonly: {
++                        type: 'boolean',
++                        description: 'Whether the signer cannot change the prefilled value (default true)'
+                       }
+                     },
+                     required: %w[name value]
+@@ -54,6 +59,25 @@
+                 }
+               }
+             }
++          },
++          send_email: {
++            type: 'boolean',
++            description: 'Email each signer their signing link (default true). When false, the result lists ' \
++                         'the signing URLs instead'
++          },
++          order: {
++            type: 'string',
++            enum: %w[preserved random],
++            description: 'preserved: signers are invited one after another in the template order; random: all ' \
++                         'at once (default: the template setting, else random)'
++          },
++          message: {
++            type: 'object',
++            description: 'Custom invitation email',
++            properties: {
++              subject: { type: 'string', description: 'Email subject' },
++              body: { type: 'string', description: 'Email body' }
++            }
+           }
+         },
+         required: %w[template_id submitters]
+@@ -90,7 +114,8 @@
+         fields = Array.wrap(s['fields']).filter_map do |f|
+           next if f['name'].blank?
+ 
+-          { 'name' => f['name'], 'default_value' => f['value'], 'readonly' => true }
++          # Stark: readonly stays the default; the sender may let the signer edit a prefilled value.
++          { 'name' => f['name'], 'default_value' => f['value'], 'readonly' => !f['readonly'].in?([false, 'false']) }
+         end
+ 
+         attrs['fields'] = fields if fields.present?
+@@ -98,13 +123,21 @@
+         attrs.with_indifferent_access
+       end
+ 
++      # Stark: send_email, order and message as the API takes them. No bcc: a contract's BCC is admin-only
++      # (Stark::SubmissionGuard puts back anyone else's).
++      send_email = mcp_params['send_email'].nil? || mcp_params['send_email'].in?(Submitters::TRUE_VALUES)
++      order = mcp_params['order'].presence || @template.preferences['submitters_order'].presence || 'random'
++      return render_tool_error('order must be preserved or random') unless order.in?(%w[preserved random])
++
++      message = mcp_params['message'].is_a?(Hash) ? mcp_params['message'].slice('subject', 'body') : nil
++
+       submissions = Submissions.create_from_submitters(
+         template: @template,
+         user: current_user,
+         source: :mcp,
+-        submitters_order: @template.preferences['submitters_order'].presence || 'random',
++        submitters_order: order,
+         submissions_attrs: { submitters: },
+-        params: { 'send_email' => true, 'submitters' => submitters }
++        params: { 'send_email' => send_email, 'submitters' => submitters, 'message' => message }.compact
+       )
+ 
+       return render_tool_error('No valid submitters provided') if submissions.blank?
+@@ -117,7 +150,12 @@
+ 
+       submission = submissions.first
+ 
+-      render_tool_result(id: submission.id, status: 'pending')
++      return render_tool_result(id: submission.id, status: 'pending') if send_email
++
++      render_tool_result(id: submission.id, status: 'pending',
++                         submitters: submission.submitters.map do |s|
++                           { id: s.id, email: s.email, name: s.name, signing_url: submit_form_url(slug: s.slug) }
++                         end)
+     rescue Submissions::CreateFromSubmitters::BaseError => e
+       render_tool_error(e.message)
+     end

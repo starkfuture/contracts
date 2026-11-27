@@ -7,7 +7,7 @@ cast.json is the CAST= line printed by tests/seed.rb. Every check states what mu
 role; a check that must be ALLOWED is as important as one that must be DENIED (a scoping bug that
 locks everyone out would pass a deny-only suite). Exit code = number of failed checks.
 """
-import http.cookiejar, json, re, sys, urllib.error, urllib.parse, urllib.request
+import http.cookiejar, json, re, sys, time, urllib.error, urllib.parse, urllib.request
 
 BASE, CAST = sys.argv[1].rstrip("/"), json.load(open(sys.argv[2]))
 U, T = CAST["users"], CAST["templates"]
@@ -322,6 +322,215 @@ for user, bcc in (("m1", "m1-bcc@evil.example"), ("admin", "archive-sub@stark-te
     s, _ = api(user, "POST", "/submissions", {"template_id": T["t_shared"], "send_email": False, "bcc_completed": bcc,
                                               "submitters": [{"role": "Signer", "email": f"{user}-bcc@example.com"}]})
     check(f"api: {user} can send with a bcc field", s == 200, s)
+
+# --- Stark MCP tools -------------------------------------------------------------------------------
+# Each tool must ask CanCan what the web/API asks: allowed for whoever may, Forbidden or Not found for
+# everyone else, and never anything of another sender's contract.
+def mcpx(who, tool, args):
+    """('ok', data) | ('Forbidden', None) | ('Not found', None) | ('error: <text>', None) | ('refused: ...', None)"""
+    token = U[who]["mcp"] if who in U else who
+    req = urllib.request.Request(BASE + "/mcp", method="POST",
+                                 data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                                  "params": {"name": tool, "arguments": args}}).encode(),
+                                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            body = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return f"http {e.code}", None
+    if isinstance(body.get("error"), str):
+        return "refused: " + body["error"], None
+    if body.get("error"):
+        return ("Forbidden" if body["error"].get("message") == "Forbidden" else f"rpc {body['error']}"), None
+    res = body.get("result") or {}
+    text = res["content"][0]["text"]
+    if res.get("isError"):
+        return ("Not found" if text == "Not found" else "error: " + text), None
+    return "ok", json.loads(text)
+
+
+def events(sub_id):
+    s, body = api("admin", "GET", f"/submissions/{sub_id}")
+    return [e["event_type"] for e in body.get("submission_events", [])] if s == 200 else None
+
+
+def wait_event(sub_id, kind, seconds=40):
+    for _ in range(seconds):
+        if kind in (events(sub_id) or []):
+            return True
+        time.sleep(1)
+    return False
+
+
+def no_email(sub_id):  # the events were read (a failed read is not "no email") and none is a send
+    ev = events(sub_id)
+    return ev is not None and "send_email" not in ev
+
+
+def denied_mcp(outcome):
+    return outcome in ("Forbidden", "Not found")
+
+
+tools_req = urllib.request.Request(BASE + "/mcp", method="POST", headers={"Authorization": f"Bearer {U['m1']['mcp']}",
+                                   "Content-Type": "application/json"},
+                                   data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode())
+listed = {t["name"]: t for t in json.loads(urllib.request.urlopen(tools_req, timeout=30).read())["result"]["tools"]}
+want_tools = {"search_templates", "load_template", "create_template", "send_documents", "search_documents",
+              "get_document", "archive_document", "resend_invitation", "share_template", "list_users",
+              "set_user_role", "invite_user"}
+check("mcp: tools/list has every tool, each with a schema and annotations",
+      set(listed) == want_tools and all(t.get("inputSchema") and "readOnlyHint" in t.get("annotations", {}) for t in listed.values()),
+      sorted(listed))
+check("mcp: send_documents offers no bcc", "bcc" not in json.dumps(listed.get("send_documents", {})))
+
+# send_documents: send_email false returns links and sends nothing; readonly false; order; message.
+o, nomail = mcpx("m1", "send_documents", {
+    "template_id": T["t_shared"], "send_email": False, "order": "preserved", "bcc_completed": "mcp-bcc@evil.example",
+    "message": {"subject": "Please sign", "body": "Hello {{submitter.link}}"},
+    "submitters": [{"email": "nomail-signer@example.com", "role": "Signer", "bcc_completed": "mcp-signer-bcc@evil.example",
+                    "fields": [{"name": "Name", "value": "Editable prefill", "readonly": False}]}]})
+links = (nomail or {}).get("submitters") or []
+check("mcp: send_documents with send_email false returns each signer's signing URL",
+      o == "ok" and len(links) == 1 and "/s/" in links[0].get("signing_url", ""), f"{o} {nomail}")
+o, mailed = mcpx("m1", "send_documents", {"template_id": T["t_shared"], "submitters": [
+    {"email": "mailed-signer@example.com", "role": "Signer", "fields": [{"name": "Name", "value": "Locked prefill"}]}]})
+check("mcp: send_documents by default emails and returns no links", o == "ok" and "submitters" not in mailed, f"{o} {mailed}")
+nomail_id, mailed_id = (nomail or {}).get("id"), (mailed or {}).get("id")
+nomail_sid = links[0]["id"] if links else None
+
+
+def field(sub_id, name):
+    s, body = api("m1", "GET", f"/submissions/{sub_id}?include=fields")
+    if s != 200:
+        return {}, {}
+    return next((f for f in body.get("fields") or [] if f.get("name") == name), {}), body
+
+
+f, body = field(nomail_id, "Name")
+check("mcp: readonly false leaves the prefilled field editable", f.get("readonly") is False and f.get("default_value") == "Editable prefill", f)
+api_signers = {x["id"]: x["slug"] for x in body.get("submitters") or []}
+check("mcp: the returned links are this contract's own signers",
+      bool(links) and all(api_signers.get(l["id"]) and l["signing_url"].endswith("/s/" + api_signers[l["id"]]) for l in links),
+      f"{links} {api_signers}")
+check("mcp: order preserved is kept",body.get("submitters_order") == "preserved", body.get("submitters_order"))
+check("mcp: a custom message is attached to the signer",
+      bool(((body.get("submitters") or [{}])[0].get("preferences") or {}).get("email_message_uuid")), body.get("submitters"))
+f, _ = field(mailed_id, "Name")
+check("mcp: prefilled fields stay readonly by default", f.get("readonly") is True and f.get("default_value") == "Locked prefill", f)
+check("mcp: the default send emails the signer", wait_event(mailed_id, "send_email"), events(mailed_id))
+check("mcp: send_email false sent no email (while the default one did)", no_email(nomail_id), events(nomail_id))
+
+# get_document: the sender and admins only.
+for who, want in (("m1", "ok"), ("admin", "ok"), ("m2", "Not found"), ("tm", "Not found")):
+    o, doc = mcpx(who, "get_document", {"submission_id": nomail_id})
+    good = o == want and (want != "ok" or (doc["status"] == "pending" and doc["template_name"] == "Company shared"
+                                           and doc["submitters"][0]["role"] == "Signer"
+                                           and doc["submitters"][0]["signing_url"].endswith("/s/" + api_signers.get(nomail_sid, "?"))
+                                           and doc["documents"] == []))
+    check(f"mcp: {who} get_document on m1's contract -> {want}", good, f"{o} {doc}")
+o, _ = mcpx("m1", "get_document", {"submission_id": made["m2"][0]}) if made.get("m2") else ("skip", None)
+check("mcp: m1 get_document on m2's contract -> Not found", o == "Not found", o)
+
+# resend_invitation: the sender (and admins); nobody else.
+for who in ("m2", "tm"):
+    o, _ = mcpx(who, "resend_invitation", {"submitter_id": nomail_sid})
+    check(f"mcp: {who} cannot resend m1's invitation", denied_mcp(o), o)
+check("mcp: a refused resend sent nothing", no_email(nomail_id)
+      and api("m1", "GET", f"/submitters/{nomail_sid}")[1].get("sent_at") is None, events(nomail_id))
+o, res = mcpx("m1", "resend_invitation", {"submitter_id": nomail_sid})
+check("mcp: m1 resends its own invitation and the email goes out", o == "ok" and wait_event(nomail_id, "send_email"), f"{o} {res}")
+if made.get("m2"):
+    m2_sid = api("admin", "GET", f"/submissions/{made['m2'][0]}")[1]["submitters"][0]["id"]
+    o, _ = mcpx("admin", "resend_invitation", {"submitter_id": m2_sid})
+    check("mcp: admin can resend any invitation", o == "ok", o)
+    o, _ = mcpx("m1", "resend_invitation", {"submitter_id": m2_sid})
+    check("mcp: m1 cannot resend m2's invitation", denied_mcp(o), o)
+
+# Signed: documents and audit log as download URLs, still for the sender only.
+s, _ = api("m1", "PUT", f"/submitters/{nomail_sid}", {"completed": True})
+o, doc = mcpx("m1", "get_document", {"submission_id": nomail_id})
+pdf_ok = False
+if o == "ok" and doc.get("documents"):
+    with urllib.request.urlopen(doc["documents"][0]["url"].replace("http://localhost:3000", BASE), timeout=30) as r:
+        pdf_ok = r.read(5) == b"%PDF-"
+check("mcp: a completed document returns the signed PDF and the audit log",
+      o == "ok" and doc["status"] == "completed" and pdf_ok and bool(doc.get("audit_log_url"))
+      and doc["submitters"][0]["status"] == "completed", f"complete {s} {o} {doc}")
+o, _ = mcpx("m2", "get_document", {"submission_id": nomail_id})
+check("mcp: m2 cannot get m1's signed document", o == "Not found", o)
+o, _ = mcpx("m1", "resend_invitation", {"submitter_id": nomail_sid})
+check("mcp: resending to a signer who completed is refused", o.startswith("error:"), o)
+
+# archive_document: as the web/API archive (whoever may destroy the contract).
+for who in ("m2", "tm"):
+    o, _ = mcpx(who, "archive_document", {"submission_id": mailed_id})
+    check(f"mcp: {who} cannot archive m1's contract",
+          denied_mcp(o) and not api("m1", "GET", f"/submissions/{mailed_id}")[1].get("archived_at"), o)
+o, _ = mcpx("m1", "archive_document", {"submission_id": mailed_id})
+check("mcp: m1 archives its own contract", o == "ok" and bool(api("m1", "GET", f"/submissions/{mailed_id}")[1].get("archived_at")), o)
+if made.get("m2"):
+    o, _ = mcpx("admin", "archive_document", {"submission_id": made["m2"][0]})
+    check("mcp: admin can archive any contract", o == "ok", o)
+
+# share_template: template managers and admins; members never, not even their own template.
+o, _ = mcpx("m1", "share_template", {"template_id": T["t_m1"], "shared": True})
+check("mcp: member cannot share its own template", o == "Forbidden" and T["t_m1"] not in ids(api("m2", "GET", "/templates")[1]), o)
+o, _ = mcpx("m2", "share_template", {"template_id": T["t_shared"], "shared": False})
+check("mcp: member cannot make the company template private",
+      o == "Forbidden" and T["t_shared"] in ids(api("m2", "GET", "/templates")[1]), o)
+o, _ = mcpx("m1", "share_template", {"template_id": T["t_admin"], "shared": True})
+check("mcp: member cannot share a template it cannot see", o == "Not found", o)
+o, _ = mcpx("tm", "share_template", {"template_id": T["t_m1"], "shared": True})
+check("mcp: template manager shares a template, members then see it",
+      o == "ok" and T["t_m1"] in ids(api("m2", "GET", "/templates")[1]), o)
+o, _ = mcpx("admin", "share_template", {"template_id": T["t_m1"], "shared": False})
+check("mcp: admin makes it private again", o == "ok" and T["t_m1"] not in ids(api("m2", "GET", "/templates")[1]), o)
+
+# Users: admin only.
+for who in ("m1", "tm"):
+    for tool, args in (("list_users", {}), ("set_user_role", {"user_id": U["m2"]["id"], "role": "admin"}),
+                       ("set_user_role", {"user_id": U[who]["id"], "role": "admin"}),
+                       ("set_user_role", {"user_id": 999999, "role": "admin"}),
+                       ("invite_user", {"email": f"by-{who}@stark-test.example", "first_name": "x", "last_name": "y"})):
+        o, _ = mcpx(who, tool, args)
+        on_self = {U[who]["id"]: " on itself", 999999: " on a missing user"}.get(args.get("user_id"), "")
+        check(f"mcp: {who} {tool}{on_self} -> Forbidden", o == "Forbidden", o)
+check("mcp: refused role changes changed nothing",
+      all(api(who, "GET", f"/templates/{T['t_admin']}")[0] == 403 for who in ("m1", "m2"))
+      and api("tm", "GET", f"/submissions/{made['m1'][0]}")[0] == 403)
+o, users = mcpx("admin", "list_users", {})
+roles = {u["email"]: u["role"] for u in users or []}
+check("mcp: admin lists users with their roles", o == "ok" and roles.get(U["tm"]["email"]) == "template_manager"
+      and roles.get(U["m1"]["email"]) == "member" and roles.get(U["admin"]["email"]) == "admin"
+      and "by-m1@stark-test.example" not in roles, f"{o} {roles}")
+o, _ = mcpx("admin", "set_user_role", {"user_id": CAST["mcp_off_user"], "role": "member"})
+check("mcp: admin cannot change a user of another account", o == "Not found", o)
+o, _ = mcpx("admin", "set_user_role", {"user_id": U["admin"]["id"], "role": "member"})
+check("mcp: admin cannot change its own role", o == "Forbidden", o)
+o, _ = mcpx("admin", "set_user_role", {"user_id": U["m2"]["id"], "role": "owner"})
+check("mcp: an unknown role is refused", o.startswith("error:"), o)
+o, _ = mcpx("admin", "set_user_role", {"user_id": U["m2"]["id"], "role": "template_manager"})
+check("mcp: admin makes m2 a template manager, and m2 then sees every template",
+      o == "ok" and ids(api("m2", "GET", "/templates?limit=100")[1]) == ids(api("tm", "GET", "/templates?limit=100")[1]), o)
+o, _ = mcpx("admin", "set_user_role", {"user_id": U["m2"]["id"], "role": "member"})
+check("mcp: and back to member", o == "ok" and ids(api("m2", "GET", "/templates?limit=100")[1]) == [T["t_shared"]], o)
+o, inv = mcpx("admin", "invite_user", {"email": "Invited@stark-test.example", "first_name": "In", "last_name": "Vited"})
+check("mcp: admin invites a user, a member by default",
+      o == "ok" and inv["role"] == "member" and inv["email"] == "invited@stark-test.example", f"{o} {inv}")
+o, _ = mcpx("admin", "invite_user", {"email": "invited@stark-test.example", "first_name": "In", "last_name": "Vited"})
+check("mcp: inviting an existing user is refused", o.startswith("error:"), o)
+o, _ = mcpx("admin", "invite_user", {"email": "bogus-role@stark-test.example", "first_name": "b", "last_name": "r", "role": "owner"})
+check("mcp: inviting with an unknown role is refused (upstream would make an admin)",
+      o.startswith("error:") and "bogus-role@stark-test.example" not in {u["email"] for u in mcpx("admin", "list_users", {})[1] or []}, o)
+
+# An account with MCP off is refused, whatever the tool.
+for tool in ("get_document", "list_users"):
+    o, _ = mcpx(CAST["mcp_off"], tool, {"submission_id": nomail_id})
+    check(f"mcp: account with MCP disabled is refused ({tool})", o == "refused: MCP is disabled", o)
 
 failed = [r for r in results if not r[0]]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")
