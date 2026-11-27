@@ -160,6 +160,8 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
   refresh Claude retries after a lost answer, or sends twice at once, means signing in again. Chosen
   over a grace period because a stolen token is the case it exists for.
 - The Claude sign-in's rate limits are per app process and network address, like upstream's.
+- A client registered but never connected through is dropped after a day; a sign-in started with it
+  later gets an error page (whether Claude then registers again is unverified).
 - Anyone may register a client, but codes only ever go to Claude's callback addresses; what stops a
   colleague's sign-in link from connecting their Claude to your account is the confirmation page
   naming your user, and Claude checking its own state.

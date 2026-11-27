@@ -191,10 +191,18 @@ for over, err, why in (({"code_challenge": None}, "invalid_request", "no PKCE"),
     q = query(h.get("Location", ""))
     check(f"authorize: {why} goes back to the client with {err}", h.get("Location", "").startswith(CALLBACK) and q.get("error") == err
           and q.get("state") == "claude-state", f"{s} {h.get('Location')}")
-s, h, _ = Browser().req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge, state="x\x01" + "y" * 600)))
-q = query(h.get("Location", ""))
-check("authorize: a state that is not short printable text goes back as invalid_request, not echoed",
-      q.get("error") == "invalid_request" and "state" not in q, f"{s} {h.get('Location')}")
+for bad, why in (("x\x01y", "a control character"), ("y" * 256, "more than 255 characters")):
+    s, h, _ = Browser().req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge, state=bad)))
+    q = query(h.get("Location", ""))
+    check(f"authorize: a state with {why} goes back as invalid_request, not echoed",
+          q.get("error") == "invalid_request" and "state" not in q, f"{s} {h.get('Location')}")
+s, h, _ = Browser().req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge, state="<&>\"\\" * 51)))
+check("authorize: the longest state, all characters JSON escapes, still fits the flow cookie",
+      s in (302, 303) and "nonce" in query(h.get("Location", "")), f"{s} {h.get('Location', '')[:80]}")
+s, h, _ = Browser().req("POST", "/oauth/register", json.dumps({"redirect_uris": [CALLBACK]}), {"Content-Type": "application/json"})
+s2, h2, _ = Browser().form("/oauth/token", {"grant_type": "refresh_token", "refresh_token": "x", "client_id": CLIENT})
+check("register and token answers are never cached", "no-store" in h.get("Cache-Control", "") and "no-store" in h2.get("Cache-Control", ""),
+      f"{h.get('Cache-Control')} {h2.get('Cache-Control')}")
 
 # --- The full flow ------------------------------------------------------------------------------------
 b = Browser()
@@ -260,7 +268,7 @@ check("refresh: a refresh token spent two rotations ago, used again, is refused 
 _, verifier, _, loc, _ = sign_in(CLIENT, "as-m1")
 s, body = token({"grant_type": "authorization_code", "code": query(loc)["code"], "client_id": CLIENT, "redirect_uri": CALLBACK,
                  "code_verifier": verifier, "resource": "https://evil.example/mcp"})
-check("token: another resource is refused", s == 400, f"{s} {body}")
+check("token: another resource is refused (invalid_target)", s == 400 and body.get("error") == "invalid_target", f"{s} {body}")
 
 # --- Who may connect ----------------------------------------------------------------------------------
 for who, why in (("otherdomain", "an account outside the company"), ("unverified", "an unverified email"),
@@ -274,8 +282,12 @@ b = Browser()
 verifier, challenge = pkce()
 _, h, _ = b.req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge)))
 g = query(h["Location"])
-_, _, page = b.req("GET", "/oauth/google/callback?" + urllib.parse.urlencode({"code": f"as-m1~{g['nonce']}", "state": g["state"]}))
+_, h, page = b.req("GET", "/oauth/google/callback?" + urllib.parse.urlencode({"code": f"as-m1~{g['nonce']}", "state": g["state"]}))
 key = re.search(r'name="key" value="([^"]+)"', page).group(1)
+csp = h.get("Content-Security-Policy", "")
+check("consent page: its form may lead back to every Claude callback (CSP form-action), never framed or cached",
+      "form-action 'self' https://claude.ai:443 https://claude.com:443" in csp and "frame-ancestors 'none'" in csp
+      and "no-store" in h.get("Cache-Control", ""), csp)
 s, h, _ = b.form("/oauth/consent", {"key": "wrong" + key[5:], "allow": "1"})
 check("consent: the right browser with a wrong key is refused", s == 400 and "code=" not in h.get("Location", ""), f"{s} {h.get('Location')}")
 s, h, _ = Browser().form("/oauth/consent", {"key": key, "allow": "1"})
@@ -287,6 +299,10 @@ check("a new company user is created as a member", mcp(t["access_token"], "list_
 
 # --- Changes take effect on the next call ------------------------------------------------------------
 admin = Admin()
+_, challenge = pkce()
+s, h, _ = admin.b.req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge)))
+check("a browser already signed in to DocuSeal still goes through Google (the web session grants nothing)",
+      s in (302, 303) and "nonce" in query(h.get("Location", "")) and "code" not in query(h.get("Location", "")), h.get("Location"))
 m1 = connect(CLIENT, "as-m1")
 o, _ = mcp(U["admin"]["mcp"], "set_user_role", {"user_id": U["m1"]["id"], "role": "admin"})[2:]
 check("live: a member raised to admin gets admin tools on the same token", o == "ok" and mcp(m1["access_token"], "list_users", {})[2] == "ok", o)

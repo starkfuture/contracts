@@ -11,8 +11,9 @@ module Stark
     COOKIE = :stark_mcp_oauth
     PKCE_CHALLENGE = /\A[A-Za-z0-9_-]{43}\z/
     PKCE_VERIFIER = /\A[A-Za-z0-9\-._~]{43,128}\z/
-    # RFC 6749 appendix A (printable ASCII), and short enough that the flow cookie stays under 4 KB.
-    STATE = /\A[\x20-\x7E]{1,512}\z/
+    # RFC 6749 appendix A (printable ASCII), and short enough that the flow cookie stays under 4 KB even when
+    # JSON escapes every character six-fold (< > &).
+    STATE = /\A[\x20-\x7E]{1,255}\z/
 
     before_action { head :not_found unless Stark::Google.enabled? }
     before_action do
@@ -131,6 +132,8 @@ module Stark
     end
 
     def token
+      return oauth_error('invalid_target') unless resource_ok?
+
       case params[:grant_type]
       when 'authorization_code' then exchange_code
       when 'refresh_token' then refresh
@@ -228,12 +231,13 @@ module Stark
 
     def confirm_page(user, client, flow)
       h = ->(s) { ERB::Util.html_escape(s.to_s) }
-      target = URI(flow['redirect_uri'])
-      app = "#{client&.client_name.presence || 'An app'} (#{target.host})"
+      app = "#{client&.client_name.presence || 'An app'} (#{URI(flow['redirect_uri']).host})"
       response.headers['X-Frame-Options'] = 'DENY'
-      # form-action also governs where the form's redirect may go: the client's callback.
+      # form-action also governs every redirect after the form is sent: allow all the callback origins, or the
+      # browser stops on the way back to Claude.
+      origins = McpOauth.allowed_redirect_uris.map { |u| URI(u).then { |x| "#{x.scheme}://#{x.host}:#{x.port}" } }
       response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors " \
-                                                    "'none'; form-action 'self' #{target.scheme}://#{target.host}"
+                                                    "'none'; form-action 'self' #{origins.uniq.join(' ')}"
       render html: <<~HTML.html_safe # rubocop:disable Rails/OutputSafety -- every value is escaped
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Connect to Stark DocuSeal</title></head>
