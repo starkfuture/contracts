@@ -129,6 +129,11 @@ def works(access):
     return mcp(access)[0] == 200
 
 
+def rejected(access):  # exactly "not authenticated", not some other failure
+    s, www, _, _ = mcp(access)
+    return s == 401 and "resource_metadata=" in www
+
+
 class Admin:  # a web session for the admin's own settings changes
     def __init__(self):
         self.b = Browser()
@@ -186,6 +191,10 @@ for over, err, why in (({"code_challenge": None}, "invalid_request", "no PKCE"),
     q = query(h.get("Location", ""))
     check(f"authorize: {why} goes back to the client with {err}", h.get("Location", "").startswith(CALLBACK) and q.get("error") == err
           and q.get("state") == "claude-state", f"{s} {h.get('Location')}")
+s, h, _ = Browser().req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge, state="x\x01" + "y" * 600)))
+q = query(h.get("Location", ""))
+check("authorize: a state that is not short printable text goes back as invalid_request, not echoed",
+      q.get("error") == "invalid_request" and "state" not in q, f"{s} {h.get('Location')}")
 
 # --- The full flow ------------------------------------------------------------------------------------
 b = Browser()
@@ -232,19 +241,26 @@ check("mcp: ... and exactly its own contracts (search_documents)", outcome == "o
 check("mcp: the member is refused an admin tool", mcp(access, "list_users", {})[2] == "Forbidden")
 s, again = exchange(CLIENT, code, verifier)
 check("token: the code used again is refused, and the tokens it gave stop working",
-      s == 400 and not works(access) and token({"grant_type": "refresh_token", "refresh_token": tok["refresh_token"], "client_id": CLIENT})[0] == 400,
+      s == 400 and rejected(access) and token({"grant_type": "refresh_token", "refresh_token": tok["refresh_token"], "client_id": CLIENT})[0] == 400,
       f"{s} {again}")
 
 # --- Refresh rotation ---------------------------------------------------------------------------------
 t1 = connect(CLIENT, "as-m1")
 s, t2 = token({"grant_type": "refresh_token", "refresh_token": t1["refresh_token"], "client_id": CLIENT})
 check("refresh: gives new tokens, and the old access token stops working",
-      s == 200 and t2["refresh_token"] != t1["refresh_token"] and works(t2["access_token"]) and not works(t1["access_token"]), f"{s} {t2}")
+      s == 200 and t2["refresh_token"] != t1["refresh_token"] and works(t2["access_token"]) and rejected(t1["access_token"]), f"{s} {t2}")
 s, _ = token({"grant_type": "refresh_token", "refresh_token": t2["refresh_token"], "client_id": "someone-else"})
 check("refresh: another client's id is refused", s == 400)
+s, t3 = token({"grant_type": "refresh_token", "refresh_token": t2["refresh_token"], "client_id": CLIENT})
+check("refresh: rotates again", s == 200 and works(t3["access_token"]), f"{s} {t3}")
 s, _ = token({"grant_type": "refresh_token", "refresh_token": t1["refresh_token"], "client_id": CLIENT})
-check("refresh: the old refresh token used again is refused and ends the connection", s == 400 and not works(t2["access_token"])
-      and token({"grant_type": "refresh_token", "refresh_token": t2["refresh_token"], "client_id": CLIENT})[0] == 400, s)
+check("refresh: a refresh token spent two rotations ago, used again, is refused and ends the connection",
+      s == 400 and rejected(t3["access_token"])
+      and token({"grant_type": "refresh_token", "refresh_token": t3["refresh_token"], "client_id": CLIENT})[0] == 400, s)
+_, verifier, _, loc, _ = sign_in(CLIENT, "as-m1")
+s, body = token({"grant_type": "authorization_code", "code": query(loc)["code"], "client_id": CLIENT, "redirect_uri": CALLBACK,
+                 "code_verifier": verifier, "resource": "https://evil.example/mcp"})
+check("token: another resource is refused", s == 400, f"{s} {body}")
 
 # --- Who may connect ----------------------------------------------------------------------------------
 for who, why in (("otherdomain", "an account outside the company"), ("unverified", "an unverified email"),
@@ -260,6 +276,8 @@ _, h, _ = b.req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_pa
 g = query(h["Location"])
 _, _, page = b.req("GET", "/oauth/google/callback?" + urllib.parse.urlencode({"code": f"as-m1~{g['nonce']}", "state": g["state"]}))
 key = re.search(r'name="key" value="([^"]+)"', page).group(1)
+s, h, _ = b.form("/oauth/consent", {"key": "wrong" + key[5:], "allow": "1"})
+check("consent: the right browser with a wrong key is refused", s == 400 and "code=" not in h.get("Location", ""), f"{s} {h.get('Location')}")
 s, h, _ = Browser().form("/oauth/consent", {"key": key, "allow": "1"})
 check("consent: the confirmation posted from another browser is refused (CSRF)", s == 400 and "code=" not in h.get("Location", ""), f"{s} {h.get('Location')}")
 
@@ -289,7 +307,7 @@ for u in users or []:
     if u.get("email") == "oauthtemp@" + U["admin"]["email"].split("@")[1]:
         uid = u["id"]
 s, _, _ = admin.post(f"/users/{uid}", {"_method": "delete"}, "/settings/users")
-check("live: an archived user's token stops working, and so does its refresh", uid and not works(tmp["access_token"])
+check("live: an archived user's token stops working, and so does its refresh", uid and rejected(tmp["access_token"])
       and token({"grant_type": "refresh_token", "refresh_token": tmp["refresh_token"], "client_id": CLIENT})[0] == 400, f"{uid} {s}")
 
 check("manual MCP tokens (Settings -> MCP) still work", works(U["m1"]["mcp"]))

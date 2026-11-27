@@ -29,6 +29,12 @@ module Stark
       scope :live, -> { where(revoked_at: nil).where('expires_at > ?', Time.current) }
     end
 
+    # Every refresh token a grant has already exchanged, so that any of them coming back ends the grant.
+    class UsedRefreshToken < ApplicationRecord
+      self.table_name = 'stark_mcp_oauth_used_refresh_tokens'
+      belongs_to :grant, class_name: 'Stark::McpOauth::Grant'
+    end
+
     module_function
 
     # The public host (APP_URL), never the request's Host header: claude.ai reaches only that one.
@@ -82,13 +88,14 @@ module Stark
       user if user&.active_for_authentication?
     end
 
-    # New access and refresh tokens; the previous ones stop working. The previous refresh token is kept to
-    # notice it being used again.
+    # New access and refresh tokens; the previous ones stop working. The spent refresh token is kept to notice
+    # it being used again.
     def issue_tokens!(grant)
       access = random
       refresh = random
+      UsedRefreshToken.create!(grant:, sha256: grant.refresh_sha256) if grant.refresh_sha256
       grant.update!(access_sha256: digest(access), access_expires_at: [ACCESS_TTL.from_now, grant.expires_at].min,
-                    previous_refresh_sha256: grant.refresh_sha256, refresh_sha256: digest(refresh))
+                    refresh_sha256: digest(refresh))
       { access_token: access, token_type: 'Bearer', expires_in: (grant.access_expires_at - Time.current).to_i,
         refresh_token: refresh }
     end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-# OAuth for the built-in MCP server (Stark::McpOauth): registered clients and the grants signed in through them.
+# OAuth for the built-in MCP server (Stark::McpOauth): registered clients, the grants signed in through them,
+# and each grant's spent refresh tokens.
 # Codes and tokens are stored only as sha256.
 class StarkCreateMcpOauth < ActiveRecord::Migration[8.1]
   def change
@@ -23,9 +24,14 @@ class StarkCreateMcpOauth < ActiveRecord::Migration[8.1]
       t.string :access_sha256, index: { unique: true }
       t.datetime :access_expires_at
       t.string :refresh_sha256, index: { unique: true }
-      t.string :previous_refresh_sha256, index: { unique: true }
       t.datetime :expires_at, null: false
       t.datetime :revoked_at
+      t.timestamps
+    end
+
+    create_table :stark_mcp_oauth_used_refresh_tokens do |t|
+      t.references :grant, null: false, foreign_key: { to_table: :stark_mcp_oauth_grants, on_delete: :cascade }
+      t.string :sha256, null: false, index: { unique: true }
       t.timestamps
     end
   end

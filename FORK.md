@@ -156,8 +156,9 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 - Database and S3 administrators see everything.
 - Claude connections cannot be listed or ended from the web, and disconnecting in Claude does not end
   one here: it ends when the user is archived, the MCP switch goes off, or 30 days pass.
-- Refreshing a Claude connection twice with the same refresh token ends it (a copied token is assumed),
-  so a refresh Claude retries after a lost answer means signing in again.
+- Any refresh token used a second time ends the Claude connection (a copy is assumed to exist), so a
+  refresh Claude retries after a lost answer, or sends twice at once, means signing in again. Chosen
+  over a grace period because a stolen token is the case it exists for.
 - The Claude sign-in's rate limits are per app process and network address, like upstream's.
 - Anyone may register a client, but codes only ever go to Claude's callback addresses; what stops a
   colleague's sign-in link from connecting their Claude to your account is the confirmation page

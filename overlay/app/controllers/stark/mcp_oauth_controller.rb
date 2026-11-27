@@ -11,8 +11,14 @@ module Stark
     COOKIE = :stark_mcp_oauth
     PKCE_CHALLENGE = /\A[A-Za-z0-9_-]{43}\z/
     PKCE_VERIFIER = /\A[A-Za-z0-9\-._~]{43,128}\z/
+    # RFC 6749 appendix A (printable ASCII), and short enough that the flow cookie stays under 4 KB.
+    STATE = /\A[\x20-\x7E]{1,512}\z/
 
     before_action { head :not_found unless Stark::Google.enabled? }
+    before_action do
+      response.headers['Cache-Control'] = 'no-store'
+      response.headers['Pragma'] = 'no-cache'
+    end
     # Per network address (claude.ai registers and exchanges tokens from its own servers).
     before_action(only: :register) { rate_limit!('register', 30) }
     before_action(only: :callback) { rate_limit!('callback', 30) } # each one costs a call to Google
@@ -43,8 +49,8 @@ module Stark
         return oauth_error('invalid_redirect_uri')
       end
 
-      # Anyone may register; a client that never got a grant is dropped after a day.
-      McpOauth::Client.where(created_at: ...1.day.ago).where.not(id: McpOauth::Grant.select(:client_id)).delete_all
+      # Anyone may register; a client nobody ever connected through (consent touches it) is dropped after a day.
+      McpOauth::Client.where(created_at: ...1.day.ago).where('updated_at = created_at').delete_all
       client = McpOauth::Client.create!(client_id: McpOauth.random, redirect_uris: uris.uniq,
                                         client_name: body['client_name'].to_s.first(100).presence)
       render status: :created, json: {
@@ -64,9 +70,10 @@ module Stark
         redirect_uri && client&.redirect_uris&.include?(redirect_uri)
 
       state = text(:state)
+      state = nil unless state&.match?(STATE) # never echo back what we refuse
       error = if text(:response_type) != 'code' then 'unsupported_response_type'
               elsif !text(:code_challenge).to_s.match?(PKCE_CHALLENGE) || text(:code_challenge_method) != 'S256' ||
-                    (params.key?(:state) && (state.nil? || state.size > 512))
+                    (params.key?(:state) && state.nil?)
                 'invalid_request'
               elsif params.key?(:resource) && !McpOauth.resource?(params[:resource]) then 'invalid_target'
               end
@@ -114,6 +121,7 @@ module Stark
       return refuse(flow, "user #{flow['user']} may not use the MCP server") unless client && McpOauth.allowed?(user)
 
       code = McpOauth.random
+      client.touch
       McpOauth::Grant.where(expires_at: ...Time.current).delete_all
       McpOauth::Grant.create!(client:, user:, redirect_uri: flow['redirect_uri'], code_challenge: flow['challenge'],
                               resource: McpOauth.resource, code_sha256: McpOauth.digest(code),
@@ -123,8 +131,6 @@ module Stark
     end
 
     def token
-      response.headers['Cache-Control'] = 'no-store'
-      response.headers['Pragma'] = 'no-cache'
       case params[:grant_type]
       when 'authorization_code' then exchange_code
       when 'refresh_token' then refresh
@@ -153,14 +159,15 @@ module Stark
       ok ? render(json: McpOauth.issue_tokens!(grant)) : oauth_error('invalid_grant')
     end
 
-    # Rotation: each refresh token works once. The one before it, used again, ends the whole connection
+    # Rotation: each refresh token works once. Any spent one used again ends the whole connection
     # (RFC 9700 4.14); the lock makes two refreshes with the same token count as one reuse.
     def refresh
       sha = McpOauth.digest(params[:refresh_token])
       tokens = McpOauth::Grant.transaction do
         grant = McpOauth::Grant.lock.find_by(refresh_sha256: sha)
         if grant.nil?
-          McpOauth::Grant.where(previous_refresh_sha256: sha).update_all(revoked_at: Time.current)
+          McpOauth::Grant.where(id: McpOauth::UsedRefreshToken.where(sha256: sha).select(:grant_id))
+                         .update_all(revoked_at: Time.current)
           nil
         elsif grant.revoked_at.nil? && grant.expires_at.future? && grant.client.client_id == client_id &&
               resource_ok? && McpOauth.allowed?(grant.user)
@@ -221,10 +228,12 @@ module Stark
 
     def confirm_page(user, client, flow)
       h = ->(s) { ERB::Util.html_escape(s.to_s) }
-      app = "#{client&.client_name.presence || 'An app'} (#{URI(flow['redirect_uri']).host})"
+      target = URI(flow['redirect_uri'])
+      app = "#{client&.client_name.presence || 'An app'} (#{target.host})"
       response.headers['X-Frame-Options'] = 'DENY'
-      response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; " \
-                                                    "form-action 'self'; frame-ancestors 'none'"
+      # form-action also governs where the form's redirect may go: the client's callback.
+      response.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors " \
+                                                    "'none'; form-action 'self' #{target.scheme}://#{target.host}"
       render html: <<~HTML.html_safe # rubocop:disable Rails/OutputSafety -- every value is escaped
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Connect to Stark DocuSeal</title></head>
@@ -232,6 +241,7 @@ module Stark
         <h1 style="font-size:1.4rem">Connect #{h.(app)} to DocuSeal?</h1>
         <p>It will act as <b>#{h.(user.email)}</b> (#{h.(user.role.to_s.humanize.downcase)}) with exactly your DocuSeal
         rights, for up to 30 days or until an admin archives your user.</p>
+        <p>Only allow this if you started it yourself, just now, from Claude.</p>
         <form method="post" action="/oauth/consent"><input type="hidden" name="key" value="#{h.(flow['key'])}">
         <button name="allow" value="1" style="font-size:1rem;padding:.5rem 1.5rem">Allow</button>
         <button name="deny" value="1" style="font-size:1rem;padding:.5rem 1rem">Cancel</button></form></body></html>
