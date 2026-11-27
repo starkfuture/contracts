@@ -44,7 +44,9 @@ mirrored in ECR, pinned by digest in `UPSTREAM` and passed to the `Dockerfile` a
   the upstream behaviour the rules rely on unpatched: users editing themselves cannot change their
   role (`users_controller.rb`), BCC precedence (`process_submitter_completion_job.rb`), the
   template preferences form (`templates_preferences_controller.rb`), the contract model
-  (`submission.rb`: preferences stored as JSON with string keys, which the BCC guard relies on). Any
+  (`submission.rb`: preferences stored as JSON with string keys, which the BCC guard relies on), and
+  what the Stark MCP tools mirror: the MCP base controller (token, MCP switch, Forbidden), the web resend
+  and the API's contract show and archive. Any
   upstream change in them stops the build for a human re-read. Because every patched file is
   pinned whole, a patch can only fail after its pin already has; the pin is the tripwire.
   The test pod also checks the image's own copies against PINS, so the image provably holds the
@@ -83,7 +85,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
 | `db/migrate/…_stark_add_shared_to_templates.rb` | `templates.stark_shared`, false for every existing template. |
-| `app/controllers/mcp/` | The Stark MCP tools. Each asks CanCan the question its web or API counterpart asks, and reuses upstream's serializers, jobs and mailers rather than new logic. |
+| `app/controllers/mcp/` | The Stark MCP tools. Each asks the permission question its web or API counterpart asks. |
 
 ## Traps
 
@@ -182,7 +184,7 @@ Google sign-in is off unless both are set (Google Cloud OAuth client; redirect U
 CI (`check.yml`) checks the pins and patches and parses every Ruby file on every PR. The permission
 tests need a running DocuSeal: `tests/` runs the real image with `build/app` and a throwaway
 Postgres (the image staging's own database runs) on a pod in a dynamic sandbox namespace, seeds one
-admin, one template manager and two members, and checks 134 allowed and denied cases over the API,
+admin, one template manager and two members, and checks 137 allowed and denied cases over the API,
 web pages and the built-in MCP server (every tool, every role, another sender's contract, an account
 with MCP off), 19 Google sign-in cases against a stand-in Google that signs
 tokens with its own key (good, forged, expired, wrong app, wrong issuer, outside domain, unverified,

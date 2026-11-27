@@ -27,6 +27,8 @@ module Mcp
       return render_tool_error('Signer has already completed') if submitter.completed_at?
       return render_tool_error('Signer has declined') if submitter.declined_at?
       return render_tool_error('Document has been archived') if submitter.submission.archived_at?
+      return render_tool_error('Document has expired') if submitter.submission.expired?
+      return render_tool_error('Template has been archived') if submitter.template&.archived_at?
       return render_tool_error('Signer has no email') if submitter.email.blank?
 
       SendSubmitterInvitationEmailJob.perform_async('submitter_id' => submitter.id)

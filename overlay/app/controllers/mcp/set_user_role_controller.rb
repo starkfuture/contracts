@@ -21,17 +21,21 @@ module Mcp
     }.freeze
 
     def call
-      # As UsersController (load_and_authorize_resource): find, then ask CanCan.
-      user = User.find(mcp_params['user_id'])
+      # Admin only, asked before any lookup so nobody else learns which user ids exist. Then as
+      # UsersController#update: may update this user.
+      authorize!(:index, User)
+
+      user = User.accessible_by(current_ability).find(mcp_params['user_id'])
 
       authorize!(:update, user)
       raise CanCan::AccessDenied if user.id == current_user.id
+      return render_tool_error('Integration users have no role to change') if user.role == 'integration'
 
       unless mcp_params['role'].in?(User::ROLES)
         return render_tool_error("role must be one of #{User::ROLES.join(', ')}")
       end
 
-      user.update!(role: mcp_params['role'])
+      return render_tool_error(user.errors.full_messages.join(', ')) unless user.update(role: mcp_params['role'])
 
       render_tool_result(user.slice(:id, :email, :role))
     end

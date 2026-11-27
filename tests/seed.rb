@@ -70,5 +70,5 @@ default_user = account.users.create!(email: 'default@stark-test.example', first_
                                      password: SecureRandom.base58(20))
 
 puts "CAST=#{JSON.generate(users: cast, templates: templates.transform_values(&:id),
-                           default_role: default_user.role, mcp_off: mcp_off,
+                           default_role: default_user.role, mcp_off: mcp_off, mcp_off_user: off_user.id,
                            stark_shared_column: Template.column_names.include?('stark_shared'))}"

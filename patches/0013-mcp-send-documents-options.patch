@@ -72,7 +72,7 @@
  
 +      # Stark: send_email, order and message as the API takes them. No bcc: a contract's BCC is admin-only
 +      # (Stark::SubmissionGuard puts back anyone else's).
-+      send_email = !mcp_params['send_email'].in?([false, 'false'])
++      send_email = mcp_params['send_email'].nil? || mcp_params['send_email'].in?(Submitters::TRUE_VALUES)
 +      order = mcp_params['order'].presence || @template.preferences['submitters_order'].presence || 'random'
 +      return render_tool_error('order must be preserved or random') unless order.in?(%w[preserved random])
 +

@@ -366,6 +366,11 @@ def wait_event(sub_id, kind, seconds=40):
     return False
 
 
+def no_email(sub_id):  # the events were read (a failed read is not "no email") and none is a send
+    ev = events(sub_id)
+    return ev is not None and "send_email" not in ev
+
+
 def denied_mcp(outcome):
     return outcome in ("Forbidden", "Not found")
 
@@ -386,7 +391,7 @@ check("mcp: send_documents offers no bcc", "bcc" not in json.dumps(listed.get("s
 o, nomail = mcpx("m1", "send_documents", {
     "template_id": T["t_shared"], "send_email": False, "order": "preserved", "bcc_completed": "mcp-bcc@evil.example",
     "message": {"subject": "Please sign", "body": "Hello {{submitter.link}}"},
-    "submitters": [{"email": "nomail-signer@example.com", "role": "Signer",
+    "submitters": [{"email": "nomail-signer@example.com", "role": "Signer", "bcc_completed": "mcp-signer-bcc@evil.example",
                     "fields": [{"name": "Name", "value": "Editable prefill", "readonly": False}]}]})
 links = (nomail or {}).get("submitters") or []
 check("mcp: send_documents with send_email false returns each signer's signing URL",
@@ -413,7 +418,7 @@ check("mcp: a custom message is attached to the signer",
 f, _ = field(mailed_id, "Name")
 check("mcp: prefilled fields stay readonly by default", f.get("readonly") is True and f.get("default_value") == "Locked prefill", f)
 check("mcp: the default send emails the signer", wait_event(mailed_id, "send_email"), events(mailed_id))
-check("mcp: send_email false sent no email (while the default one did)", "send_email" not in (events(nomail_id) or ["?"]), events(nomail_id))
+check("mcp: send_email false sent no email (while the default one did)", no_email(nomail_id), events(nomail_id))
 
 # get_document: the sender and admins only.
 for who, want in (("m1", "ok"), ("admin", "ok"), ("m2", "Not found"), ("tm", "Not found")):
@@ -429,7 +434,8 @@ check("mcp: m1 get_document on m2's contract -> Not found", o == "Not found", o)
 for who in ("m2", "tm"):
     o, _ = mcpx(who, "resend_invitation", {"submitter_id": nomail_sid})
     check(f"mcp: {who} cannot resend m1's invitation", denied_mcp(o), o)
-check("mcp: a refused resend sent nothing", "send_email" not in (events(nomail_id) or ["?"]), events(nomail_id))
+check("mcp: a refused resend sent nothing", no_email(nomail_id)
+      and api("m1", "GET", f"/submitters/{nomail_sid}")[1].get("sent_at") is None, events(nomail_id))
 o, res = mcpx("m1", "resend_invitation", {"submitter_id": nomail_sid})
 check("mcp: m1 resends its own invitation and the email goes out", o == "ok" and wait_event(nomail_id, "send_email"), f"{o} {res}")
 if made.get("m2"):
@@ -483,9 +489,10 @@ check("mcp: admin makes it private again", o == "ok" and T["t_m1"] not in ids(ap
 for who in ("m1", "tm"):
     for tool, args in (("list_users", {}), ("set_user_role", {"user_id": U["m2"]["id"], "role": "admin"}),
                        ("set_user_role", {"user_id": U[who]["id"], "role": "admin"}),
+                       ("set_user_role", {"user_id": 999999, "role": "admin"}),
                        ("invite_user", {"email": f"by-{who}@stark-test.example", "first_name": "x", "last_name": "y"})):
         o, _ = mcpx(who, tool, args)
-        on_self = " on itself" if args.get("user_id") == U[who]["id"] else ""
+        on_self = {U[who]["id"]: " on itself", 999999: " on a missing user"}.get(args.get("user_id"), "")
         check(f"mcp: {who} {tool}{on_self} -> Forbidden", o == "Forbidden", o)
 check("mcp: refused role changes changed nothing",
       all(api(who, "GET", f"/templates/{T['t_admin']}")[0] == 403 for who in ("m1", "m2"))
@@ -495,6 +502,8 @@ roles = {u["email"]: u["role"] for u in users or []}
 check("mcp: admin lists users with their roles", o == "ok" and roles.get(U["tm"]["email"]) == "template_manager"
       and roles.get(U["m1"]["email"]) == "member" and roles.get(U["admin"]["email"]) == "admin"
       and "by-m1@stark-test.example" not in roles, f"{o} {roles}")
+o, _ = mcpx("admin", "set_user_role", {"user_id": CAST["mcp_off_user"], "role": "member"})
+check("mcp: admin cannot change a user of another account", o == "Not found", o)
 o, _ = mcpx("admin", "set_user_role", {"user_id": U["admin"]["id"], "role": "member"})
 check("mcp: admin cannot change its own role", o == "Forbidden", o)
 o, _ = mcpx("admin", "set_user_role", {"user_id": U["m2"]["id"], "role": "owner"})
@@ -516,7 +525,7 @@ check("mcp: inviting with an unknown role is refused (upstream would make an adm
 # An account with MCP off is refused, whatever the tool.
 for tool in ("get_document", "list_users"):
     o, _ = mcpx(CAST["mcp_off"], tool, {"submission_id": nomail_id})
-    check(f"mcp: account with MCP disabled is refused ({tool})", o.startswith("refused"), o)
+    check(f"mcp: account with MCP disabled is refused ({tool})", o == "refused: MCP is disabled", o)
 
 failed = [r for r in results if not r[0]]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")
