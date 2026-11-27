@@ -21,6 +21,13 @@ DocuSeal, unchanged.
   they had: after the first deploy every pre-existing user is still admin until an admin changes it.
 - The built-in MCP server (`/mcp`, per-user tokens) follows the same rules: it asks the same
   permission class.
+- Through the MCP server people do what they already may do on the web, nothing more: follow their
+  own contracts to the signed copy, archive them, resend a signer's invitation, send without email
+  and hand the signing links over themselves, choose signing order and the invitation text, and leave
+  a prefilled value editable (locked stays the default). Template managers and admins share
+  templates; admins list users, invite them and change roles. Nobody changes their own role, so the
+  last admin stays one. Nobody but an admin sets who gets a copy of a signed contract, so the send
+  tool offers no BCC.
 - People sign in with their company Google account. A company address with no DocuSeal user yet gets
   one as a member; an admin raises the role. Archived users stay out. Accounts outside the company
   domain are refused, even inside a company Google Workspace. Password sign-in keeps working
@@ -60,6 +67,8 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | 0009 | `app/models/template.rb` | Template lists load `stark_shared`, which the rules read. |
 | 0010 | `lib/templates.rb` | Templates shared from linked accounts (web list and API `shared=true`) are admin-only: they bypass the Stark rules. |
 | 0011 | `app/views/devise/sessions/_omniauthable.html.erb` | "Sign in with Google" on the sign-in page (empty upstream). |
+| 0012 | `app/controllers/mcp_controller.rb` | Registers the Stark MCP tools. |
+| 0013 | `app/controllers/mcp/send_documents_controller.rb` | Send without email (returns the signing links), signing order, invitation text, editable prefill. |
 
 | Stark file | What |
 |---|---|
@@ -74,6 +83,7 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 | `lib/stark/current.rb`, `config/initializers/stark.rb` | Who is acting in this request; the share route. |
 | `app/controllers/stark/template_visibility_controller.rb`, `app/views/stark/` | Share with company / make private. |
 | `db/migrate/…_stark_add_shared_to_templates.rb` | `templates.stark_shared`, false for every existing template. |
+| `app/controllers/mcp/` | The Stark MCP tools. Each asks CanCan the question its web or API counterpart asks, and reuses upstream's serializers, jobs and mailers rather than new logic. |
 
 ## Traps
 
@@ -120,6 +130,11 @@ The Dockerfile is a single COPY, so nothing runs at build time and both architec
 - A non-admin's contract carries no BCC of its own, so it follows the template's or account's BCC
   as it is when the contract completes: an admin changing it later also changes it for contracts
   still being signed.
+- The MCP server hands a sender their signers' signing links (on a send without email, and while
+  following a contract), as the web's "copy link" does. Whoever is given a link can sign as that signer.
+- Resending an invitation is not rate-limited (upstream limits it only on its hosted service).
+- Inviting a user through the MCP server accepts any address, as the web's users page does; only
+  Google sign-in is held to the company domain.
 - Members can create templates from a URL through the MCP server; upstream blocks internal
   addresses on that download.
 - Google sign-in does not ask for DocuSeal's own two-factor code: the company Google account's
@@ -160,18 +175,19 @@ Google sign-in is off unless both are set (Google Cloud OAuth client; redirect U
    signers, unused. If a release starts reading the signer copy, guard it too.
 6. Read upstream's changelog for new settings pages, API endpoints or MCP tools, and check them
    against the intent above. New MCP tools do not show in the route snapshot (they all live behind
-   `/mcp`): list them in `app/controllers/mcp_controller.rb`.
+   `/mcp`), but `app/controllers/mcp_controller.rb` is pinned, so a new upstream tool stops the build.
 
 ## Testing
 
 CI (`check.yml`) checks the pins and patches and parses every Ruby file on every PR. The permission
 tests need a running DocuSeal: `tests/` runs the real image with `build/app` and a throwaway
 Postgres (the image staging's own database runs) on a pod in a dynamic sandbox namespace, seeds one
-admin, one template manager and two members, and checks 82 allowed and denied cases over the API,
-web pages and the built-in MCP server, 19 Google sign-in cases against a stand-in Google that signs
+admin, one template manager and two members, and checks 134 allowed and denied cases over the API,
+web pages and the built-in MCP server (every tool, every role, another sender's contract, an account
+with MCP off), 19 Google sign-in cases against a stand-in Google that signs
 tokens with its own key (good, forged, expired, wrong app, wrong issuer, outside domain, unverified,
 company address outside the Workspace, replayed, tampered state, archived user, new user), a probe in the pod (contract BCC kept from non-admins and
-through signing; linked-account templates admin-only; the email layout; a Google-created user is a member), and the 253-route snapshot:
+through signing; linked-account templates admin-only; the email layout; a Google-created user is a member; the MCP invitation email), and the 253-route snapshot:
 
     python3 tools/assemble.py
     bash tests/run_pod_tests.sh sandboxenv-<env>   # recreates the pod, seeds, runs everything

@@ -37,4 +37,6 @@ sub = Submission.joins(:submitters).first
 html = SubmitterMailer.invitation_email(sub.submitters.first).message.body.decoded if sub # single-part HTML mail
 result[:stark_email_layout] = html.to_s.include?('Stark Future')
 result[:google_new_user_role] = User.find_by(email: 'newbie@stark-test.example')&.role
+# The MCP invite_user tool sends upstream's invitation email (tests/matrix.py invites this address).
+result[:mcp_invite_email] = EmailEvent.exists?(tag: 'user_invitation', email: 'invited@stark-test.example')
 puts "PROBE=#{JSON.generate(result)}"

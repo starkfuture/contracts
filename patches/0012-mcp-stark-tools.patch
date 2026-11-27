@@ -1,0 +1,19 @@
+--- a/app/controllers/mcp_controller.rb
++++ b/app/controllers/mcp_controller.rb
+@@ -6,7 +6,15 @@
+     'load_template' => Mcp::LoadTemplateController,
+     'create_template' => Mcp::CreateTemplateController,
+     'send_documents' => Mcp::SendDocumentsController,
+-    'search_documents' => Mcp::SearchDocumentsController
++    'search_documents' => Mcp::SearchDocumentsController,
++    # Stark tools (overlay/app/controllers/mcp/): each asks CanCan the same question as the web/API.
++    'get_document' => Mcp::GetDocumentController,
++    'archive_document' => Mcp::ArchiveDocumentController,
++    'resend_invitation' => Mcp::ResendInvitationController,
++    'share_template' => Mcp::ShareTemplateController,
++    'list_users' => Mcp::ListUsersController,
++    'set_user_role' => Mcp::SetUserRoleController,
++    'invite_user' => Mcp::InviteUserController
+   }.freeze
+ 
+   TOOLS = TOOL_CONTROLLERS.map { |_, controller| controller::SCHEMA }.freeze
