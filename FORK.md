@@ -152,10 +152,13 @@ Google sign-in is off unless both are set (Google Cloud OAuth client; redirect U
    (`sha256sum <files>`).
 3. Run the tests (below). The route snapshot fails on any new or changed route: check that each new
    endpoint goes through CanCan (or is public by design), then update `tests/routes.txt`.
-4. Check where upstream reads `bcc_completed`: today only the contract's, then the template's,
+4. A weekly workflow (`.github/workflows/upstream.yml`) opens an issue labelled `upstream` when Docker Hub
+   has a newer release: read its changelog for security fixes and upgrade early when there are some.
+   GitHub pauses scheduled workflows after 60 days without repository activity; re-enable it if so.
+5. Check where upstream reads `bcc_completed`: today only the contract's, then the template's,
    then the account's (`process_submitter_completion_job.rb`). Upstream also copies it onto
    signers, unused. If a release starts reading the signer copy, guard it too.
-5. Read upstream's changelog for new settings pages, API endpoints or MCP tools, and check them
+6. Read upstream's changelog for new settings pages, API endpoints or MCP tools, and check them
    against the intent above. New MCP tools do not show in the route snapshot (they all live behind
    `/mcp`): list them in `app/controllers/mcp_controller.rb`.
 
