@@ -1,0 +1,37 @@
+# Once a week: is there a newer DocuSeal release on Docker Hub than the tag in UPSTREAM? If so, open
+# one issue labelled `upstream` (none while one is open), so security fixes upstream do not wait for
+# the yearly upgrade. The base image is pinned through our ECR mirror, which Renovate/Dependabot
+# cannot see. The upgrade itself is FORK.md "Upgrading DocuSeal".
+# GitHub pauses scheduled workflows after 60 days without repository activity: re-enable it in the
+# Actions tab if it shows as disabled.
+name: upstream
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  newer-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Compare with Docker Hub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current=$(sed -n 's/^TAG=//p' UPSTREAM)
+          latest=$(curl -fsS "https://hub.docker.com/v2/repositories/docuseal/docuseal/tags?page_size=100&ordering=last_updated" \
+            | python3 -c 'import json,re,sys; v=[r["name"] for r in json.load(sys.stdin)["results"] if re.fullmatch(r"\d+\.\d+\.\d+", r["name"], re.A)]; print(max(v, key=lambda s: tuple(map(int, s.split(".")))) if v else "")')
+          echo "current=$current latest=$latest"
+          [ -n "$latest" ] || { echo "no stable tag found"; exit 1; }
+          newer=$(python3 -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); print(int(b>a))' "$current" "$latest")
+          [ "$newer" = 1 ] || exit 0
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label upstream --json number --jq 'length')
+          if [ "$open" = 0 ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --label upstream --title "DocuSeal $latest is out (we run $current)" \
+              --body "Docker Hub has docuseal/docuseal:$latest; UPSTREAM pins $current. Read the upstream changelog for security fixes, then follow FORK.md \"Upgrading DocuSeal\" (mirror the multi-arch index into ECR, update UPSTREAM, re-check PINS, run the tests). Close this issue when done."
+          else
+            echo "an upstream issue is already open"
+          fi
