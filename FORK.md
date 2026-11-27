@@ -184,7 +184,7 @@ Google sign-in is off unless both are set (Google Cloud OAuth client; redirect U
 CI (`check.yml`) checks the pins and patches and parses every Ruby file on every PR. The permission
 tests need a running DocuSeal: `tests/` runs the real image with `build/app` and a throwaway
 Postgres (the image staging's own database runs) on a pod in a dynamic sandbox namespace, seeds one
-admin, one template manager and two members, and checks 137 allowed and denied cases over the API,
+admin, one template manager and two members, and checks 138 allowed and denied cases over the API,
 web pages and the built-in MCP server (every tool, every role, another sender's contract, an account
 with MCP off), 19 Google sign-in cases against a stand-in Google that signs
 tokens with its own key (good, forged, expired, wrong app, wrong issuer, outside domain, unverified,

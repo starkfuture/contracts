@@ -412,7 +412,11 @@ def field(sub_id, name):
 
 f, body = field(nomail_id, "Name")
 check("mcp: readonly false leaves the prefilled field editable", f.get("readonly") is False and f.get("default_value") == "Editable prefill", f)
-check("mcp: order preserved is kept", body.get("submitters_order") == "preserved", body.get("submitters_order"))
+api_signers = {x["id"]: x["slug"] for x in body.get("submitters") or []}
+check("mcp: the returned links are this contract's own signers",
+      bool(links) and all(api_signers.get(l["id"]) and l["signing_url"].endswith("/s/" + api_signers[l["id"]]) for l in links),
+      f"{links} {api_signers}")
+check("mcp: order preserved is kept",body.get("submitters_order") == "preserved", body.get("submitters_order"))
 check("mcp: a custom message is attached to the signer",
       bool(((body.get("submitters") or [{}])[0].get("preferences") or {}).get("email_message_uuid")), body.get("submitters"))
 f, _ = field(mailed_id, "Name")
@@ -425,7 +429,8 @@ for who, want in (("m1", "ok"), ("admin", "ok"), ("m2", "Not found"), ("tm", "No
     o, doc = mcpx(who, "get_document", {"submission_id": nomail_id})
     good = o == want and (want != "ok" or (doc["status"] == "pending" and doc["template_name"] == "Company shared"
                                            and doc["submitters"][0]["role"] == "Signer"
-                                           and "/s/" in doc["submitters"][0]["signing_url"] and doc["documents"] == []))
+                                           and doc["submitters"][0]["signing_url"].endswith("/s/" + api_signers.get(nomail_sid, "?"))
+                                           and doc["documents"] == []))
     check(f"mcp: {who} get_document on m1's contract -> {want}", good, f"{o} {doc}")
 o, _ = mcpx("m1", "get_document", {"submission_id": made["m2"][0]}) if made.get("m2") else ("skip", None)
 check("mcp: m1 get_document on m2's contract -> Not found", o == "Not found", o)
