@@ -131,9 +131,9 @@ module Stark
       back_to(flow['redirect_uri'], flow['state'], code:)
     end
 
+    # A wrong resource is answered invalid_target (RFC 8707), but only after the code is used up or the refresh
+    # token checked for reuse: it is no way around either.
     def token
-      return oauth_error('invalid_target') unless resource_ok?
-
       case params[:grant_type]
       when 'authorization_code' then exchange_code
       when 'refresh_token' then refresh
@@ -152,13 +152,15 @@ module Stark
         return oauth_error('invalid_grant')
       end
 
+      return oauth_error('invalid_target') unless resource_ok?
+
       grant = McpOauth::Grant.find_by!(code_sha256: sha)
       verifier = params[:code_verifier].to_s
       ok = grant.revoked_at.nil? && grant.code_expires_at.future? && grant.client.client_id == client_id &&
            grant.redirect_uri == params[:redirect_uri].to_s && verifier.match?(PKCE_VERIFIER) &&
            ActiveSupport::SecurityUtils.secure_compare(
              Base64.urlsafe_encode64(Digest::SHA256.digest(verifier), padding: false), grant.code_challenge
-           ) && resource_ok? && McpOauth.allowed?(grant.user)
+           ) && McpOauth.allowed?(grant.user)
       ok ? render(json: McpOauth.issue_tokens!(grant)) : oauth_error('invalid_grant')
     end
 
@@ -177,7 +179,7 @@ module Stark
           McpOauth.issue_tokens!(grant)
         end
       end
-      tokens ? render(json: tokens) : oauth_error('invalid_grant')
+      tokens ? render(json: tokens) : oauth_error(resource_ok? ? 'invalid_grant' : 'invalid_target')
     end
 
     # Public clients send client_id in the form; tolerate a client that sends it as HTTP Basic anyway.

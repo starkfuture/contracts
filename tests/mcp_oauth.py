@@ -196,7 +196,7 @@ for bad, why in (("x\x01y", "a control character"), ("y" * 256, "more than 255 c
     q = query(h.get("Location", ""))
     check(f"authorize: a state with {why} goes back as invalid_request, not echoed",
           q.get("error") == "invalid_request" and "state" not in q, f"{s} {h.get('Location')}")
-s, h, _ = Browser().req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge, state="<&>\"\\" * 51)))
+s, h, _ = Browser().req("GET", "/oauth/authorize?" + urllib.parse.urlencode(authorize_params(CLIENT, challenge, state="<" * 255)))
 check("authorize: the longest state, all characters JSON escapes, still fits the flow cookie",
       s in (302, 303) and "nonce" in query(h.get("Location", "")), f"{s} {h.get('Location', '')[:80]}")
 s, h, _ = Browser().req("POST", "/oauth/register", json.dumps({"redirect_uris": [CALLBACK]}), {"Content-Type": "application/json"})
@@ -269,6 +269,8 @@ _, verifier, _, loc, _ = sign_in(CLIENT, "as-m1")
 s, body = token({"grant_type": "authorization_code", "code": query(loc)["code"], "client_id": CLIENT, "redirect_uri": CALLBACK,
                  "code_verifier": verifier, "resource": "https://evil.example/mcp"})
 check("token: another resource is refused (invalid_target)", s == 400 and body.get("error") == "invalid_target", f"{s} {body}")
+s, body = exchange(CLIENT, query(loc)["code"], verifier)
+check("token: ... and that attempt used the code up", s == 400 and body.get("error") == "invalid_grant", f"{s} {body}")
 
 # --- Who may connect ----------------------------------------------------------------------------------
 for who, why in (("otherdomain", "an account outside the company"), ("unverified", "an unverified email"),
